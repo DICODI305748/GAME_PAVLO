@@ -22,10 +22,17 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 | **WASD** | Move · **Shift** sprint · **Space** jump |
 | **Mouse** | Look · **LMB** shoot / place build piece |
 | **B** | Toggle **Combat / Build** mode |
-| **1–5** | Combat: select weapon · Build: 1 wall · 2 ramp · 3 floor |
+| **1–7** | Combat: 1-5 guns, 6 pickaxe, 7 axe · Build: 1 wall, 2 ramp, 3 floor, 4 turret (30🧱) |
+| **F** | Enter / exit a **car** |
 | **Mouse wheel** | Cycle weapons |
 | **R** | Reload |
-| **E** | Open a chest (when nearby) |
+| **E** | Open a chest · harvest trees/rocks with pickaxe/axe for materials |
+
+## 🚗 Vehicles, turrets & harvesting tools
+
+- **Drivable cars** — walk up to a car and press **F** to get in. Drive with WASD (accelerate, reverse, steer), and run over enemies at speed. Press **F** again to get out.
+- **Auto-turret** — in Build mode, select slot **4** to place a turret for **30 materials**. It automatically targets and fires at nearby enemies with line-of-sight, and has its own health.
+- **Pickaxe & axe** (slots **6** and **7**) — melee tools that harvest materials. Hit **rocks** with the pickaxe and **trees** with the axe (right tool = bonus materials), or use them as close-range weapons.
 
 ## 🔫 Weapons
 

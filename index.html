@@ -121,9 +121,10 @@
       <b>WASD</b><span>Рух · <b>Shift</b> біг · <b>Space</b> стрибок</span>
       <b>Миша</b><span>Огляд · ЛКМ — стріляти / будувати</span>
       <b>B</b><span>Перемкнути режим Бій / Будівництво</span>
-      <b>1–5</b><span>У бою — зброя · у будівництві: 1 стіна · 2 рампа · 3 підлога</span>
+      <b>1–7</b><span>Бій: 1-5 зброя, 6 кірка, 7 сокира · Будівництво: 1 стіна, 2 рампа, 3 підлога, 4 турель (30🧱)</span>
+      <b>F</b><span>Сісти / вийти з <b>машини</b> 🚗</span>
       <b>R</b><span>Перезарядка · <b>колесо</b> миші — зброя</span>
-      <b>E</b><span>Відкрити скриню (біля неї)</span>
+      <b>E</b><span>Відкрити скриню · кіркою/сокирою бий дерева й каміння заради 🧱</span>
     </div>
     <p style="margin-top:12px;color:#9fb0e0;font-size:13px">Натисни кнопку, потім клікни по екрану щоб захопити мишу. <b>Esc</b> — відпустити.</p>
   </div>
@@ -220,7 +221,9 @@ const worldColliders = [];   // {min:{x,z}, max:{x,z}, top} AABB blockers (also 
 const bulletMeshes = [];     // meshes raycastable by bullets (static world + structures)
 
 function addBoxCollider(cx, cz, hx, hz){
-  worldColliders.push({minx:cx-hx, maxx:cx+hx, minz:cz-hz, maxz:cz+hz});
+  const c={minx:cx-hx, maxx:cx+hx, minz:cz-hz, maxz:cz+hz};
+  worldColliders.push(c);
+  return c;
 }
 
 // Ground
@@ -269,7 +272,8 @@ function makeTree(x,z){
   }
   g.position.set(x,0,z); staticGroup.add(g);
   trunk.updateMatrixWorld(); bulletMeshes.push(trunk);
-  addBoxCollider(x,z,0.7,0.7);
+  const col=addBoxCollider(x,z,0.7,0.7);
+  trunk.userData.harvest="wood"; trunk.userData.hp=3; trunk.userData.rootGroup=g; trunk.userData.col=col;
 }
 for(let i=0;i<70;i++){
   const x=rand(-WORLD+20,WORLD-20), z=rand(-WORLD+20,WORLD-20);
@@ -287,7 +291,8 @@ for(let i=0;i<40;i++){
   r.position.set(x, s*0.5, z); r.castShadow=r.receiveShadow=true;
   r.rotation.set(rand(0,3),rand(0,3),rand(0,3));
   staticGroup.add(r); r.updateMatrixWorld(); bulletMeshes.push(r);
-  addBoxCollider(x,z,s*0.7,s*0.7);
+  const col=addBoxCollider(x,z,s*0.7,s*0.7);
+  r.userData.harvest="stone"; r.userData.hp=4; r.userData.rootGroup=r; r.userData.col=col;
 }
 
 // Pre-built houses (loot landmarks) — real walls with a doorway + roof
@@ -445,8 +450,11 @@ const WEAPONS = {
   ar:      {name:"Автомат",   key:"3", dmg:28, rof:120, mag:30, reload:1900, spread:0.02,  range:180, pellets:1, auto:true,  color:0xffd54a, size:[0.18,0.26,0.95]},
   shotgun: {name:"Дробовик",  key:"4", dmg:11, rof:750, mag:6,  reload:2200, spread:0.11,  range:32,  pellets:9, auto:false, color:0xff9d5c, size:[0.22,0.28,0.9]},
   sniper:  {name:"Снайперка", key:"5", dmg:120,rof:1400,mag:5,  reload:2600, spread:0.002, range:400, pellets:1, auto:false, color:0x9d7dff, size:[0.16,0.24,1.3], scope:true},
+  pickaxe: {name:"Кірка",     key:"6", dmg:40, rof:450, range:6, melee:true, harvest:"stone", color:0x9fb4c8},
+  axe:     {name:"Сокира",    key:"7", dmg:40, rof:450, range:6, melee:true, harvest:"wood",  color:0xcaa16a},
 };
-const WORDER = ["pistol","smg","ar","shotgun","sniper"];
+const WORDER = ["pistol","smg","ar","shotgun","sniper"];      // guns (slots 1-5)
+const ALLSEL = ["pistol","smg","ar","shotgun","sniper","pickaxe","axe"]; // selectable 1-7
 
 // ===================================================================
 //  Dynamic groups (reset each match)
@@ -458,6 +466,8 @@ let bullets = [];      // visual tracers {mesh, life}
 let chests = [];
 let loots = [];
 let particles = [];
+let turrets = [];      // placed auto-turrets
+let cars = [];         // drivable vehicles
 
 let player, storm, state="menu", running=false, lastTime=0;
 let killCount=0, buildMode=false, buildPiece="wall";
@@ -468,7 +478,7 @@ let ghost=null;
 
 function clearGroup(){
   while(dynGroup.children.length) dynGroup.remove(dynGroup.children[0]);
-  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[];
+  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[];
 }
 
 // ===================================================================
@@ -481,7 +491,9 @@ function makePlayer(){
     yaw:0, pitch:0, onGround:true,
     hp:100, maxHp:100, shield:0, maxShield:100,
     mats:50, alive:true,
-    inv:{pistol:{ammo:12,reserve:60}, ar:{ammo:30,reserve:90}}, // start loadout
+    inv:{pistol:{ammo:12,reserve:60}, ar:{ammo:30,reserve:90},
+         pickaxe:{melee:true}, axe:{melee:true}}, // start loadout + tools always owned
+    vehicle:null,
     cur:"pistol", lastShot:0, reloading:false, reloadEnd:0,
     hitFlash:0,
   };
@@ -493,6 +505,25 @@ function buildViewmodel(){
   if(gunMesh) camera.remove(gunMesh);
   const w=WEAPONS[player.cur];
   gunMesh=new THREE.Group();
+  if(w.melee){
+    // tool: handle + head (pickaxe = spike, axe = blade)
+    const handle=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1.1,7),
+      new THREE.MeshStandardMaterial({color:0x6b4423,roughness:.9}));
+    handle.rotation.x=Math.PI/2.6; handle.position.z=-0.3; gunMesh.add(handle);
+    const headMat=new THREE.MeshStandardMaterial({color:w.color,metalness:.6,roughness:.4});
+    if(w.harvest==="stone"){
+      const spike=new THREE.Mesh(new THREE.ConeGeometry(0.09,0.7,6),headMat);
+      spike.rotation.z=Math.PI/2; spike.position.set(0,0.35,-0.72); gunMesh.add(spike);
+    } else {
+      const blade=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.4,0.08),headMat);
+      blade.position.set(0.18,0.34,-0.72); gunMesh.add(blade);
+    }
+    muzzle=null;
+    gunMesh.scale.setScalar(0.85);
+    gunMesh.position.set(0.3,-0.3,-0.8);
+    camera.add(gunMesh);
+    return;
+  }
   const body=new THREE.Mesh(new THREE.BoxGeometry(...w.size),
     new THREE.MeshStandardMaterial({color:0x22262f,roughness:.6,metalness:.4}));
   gunMesh.add(body);
@@ -515,6 +546,7 @@ function buildViewmodel(){
 function structGeom(kind){
   if(kind==="wall") return new THREE.BoxGeometry(GRID, GRID, WALL_T);
   if(kind==="floor") return new THREE.BoxGeometry(GRID, WALL_T, GRID);
+  if(kind==="turret") return new THREE.CylinderGeometry(1.0,1.3,2.4,10);
   if(kind==="ramp"){
     // sloped box
     const g=new THREE.BoxGeometry(GRID, WALL_T, GRID*1.42);
@@ -544,9 +576,14 @@ function placement(){
   if(buildPiece==="floor"){
     return {x:snap(px), y:baseY, z:snap(pz), rot:0, kind:"floor"};
   }
+  if(buildPiece==="turret"){
+    return {x:px, y:baseY, z:pz, rot:dir, kind:"turret"};  // sits on the ground, not grid-snapped
+  }
   // ramp
   return {x:snap(px), y:baseY+GRID/2, z:snap(pz), rot:dir, kind:"ramp"};
 }
+const TURRET_COST=30;
+function pieceCost(kind){ return kind==="turret"?TURRET_COST:10; }
 
 function updateGhost(){
   if(!buildMode){ if(ghost){dynGroup.remove(ghost);ghost=null;} return; }
@@ -559,13 +596,51 @@ function updateGhost(){
   ghost.position.set(p.x,p.y,p.z);
   ghost.rotation.set(0,p.rot,0);
   if(p.kind==="ramp") ghost.rotation.x=-Math.PI/5;
-  const ok=player.mats>=10;
+  if(p.kind==="turret") ghost.position.y=p.y+1.2;
+  const ok=player.mats>=pieceCost(p.kind);
   ghost.material.color.setHex(ok?0x66ffcc:0xff6666);
 }
 
+// ---- Turret model ----
+function makeTurret(x,z){
+  const g=new THREE.Group();
+  const base=new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.3,1.0,12),
+    new THREE.MeshStandardMaterial({color:0x3a4358,roughness:.6,metalness:.4}));
+  base.position.y=0.5; base.castShadow=true; g.add(base);
+  const pivot=new THREE.Group(); pivot.position.y=1.3; g.add(pivot);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.7,12,10),
+    new THREE.MeshStandardMaterial({color:0x556074,roughness:.5,metalness:.5}));
+  head.castShadow=true; pivot.add(head);
+  const barrel=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,2.0,8),
+    new THREE.MeshStandardMaterial({color:0x11151c,metalness:.6}));
+  barrel.rotation.x=Math.PI/2; barrel.position.z=-1.1; pivot.add(barrel);
+  const barrel2=barrel.clone(); barrel2.position.x=0.28; pivot.add(barrel2);
+  barrel.position.x=-0.28;
+  // little Ukraine flag
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1.4,5),
+    new THREE.MeshStandardMaterial({color:0xd7dbe2})); pole.position.set(0.7,1.9,0); g.add(pole);
+  const fb=new THREE.Mesh(new THREE.PlaneGeometry(0.7,0.24),new THREE.MeshStandardMaterial({color:0x0057b7,side:THREE.DoubleSide})); fb.position.set(1.05,2.35,0); g.add(fb);
+  const fy=new THREE.Mesh(new THREE.PlaneGeometry(0.7,0.24),new THREE.MeshStandardMaterial({color:0xffd700,side:THREE.DoubleSide})); fy.position.set(1.05,2.11,0); g.add(fy);
+  g.position.set(x,0,z);
+  g.userData={pivot};
+  return g;
+}
+function placeTurret(p){
+  const mesh=makeTurret(p.x,p.z);
+  dynGroup.add(mesh); mesh.updateMatrixWorld();
+  const t={mesh, pivot:mesh.userData.pivot, kind:"turret", hp:220, maxHp:220,
+    x:p.x, z:p.z, range:70, cool:0, aim:0,
+    col:{minx:p.x-1.2,maxx:p.x+1.2,minz:p.z-1.2,maxz:p.z+1.2,top:2.4}};
+  structures.push(t);   // so bullets can damage/destroy it
+  turrets.push(t);      // so it gets AI updates
+  toast("Турель встановлено! 🔫");
+}
+
 function placeStructure(){
-  if(player.mats<10){ toast("Немає матеріалів (треба 10 🧱)"); return; }
   const p=placement();
+  const cost=pieceCost(p.kind);
+  if(player.mats<cost){ toast("Треба "+cost+" 🧱"); return; }
+  if(p.kind==="turret"){ placeTurret(p); player.mats-=cost; updateHUD(); return; }
   const mesh=new THREE.Mesh(structGeom(p.kind), structMat(false));
   mesh.position.set(p.x,p.y,p.z); mesh.rotation.set(0,p.rot,0);
   if(p.kind==="ramp") mesh.rotation.x=-Math.PI/5;
@@ -584,7 +659,7 @@ function placeStructure(){
     s.ramp={cx:p.x, cz:p.z, rot:p.rot, base:p.y-GRID/2};
   }
   structures.push(s);
-  player.mats-=10; updateHUD();
+  player.mats-=cost; updateHUD();
 }
 
 // ===================================================================
@@ -610,6 +685,7 @@ function makeBotMesh(color){
   const tex=new THREE.CanvasTexture(cv);
   const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,depthTest:false}));
   spr.scale.set(1.6,0.2,1); spr.position.y=2.6; g.add(spr);
+  spr.raycast=function(){};   // never intercept bullets (and avoids Sprite raycast needing a camera)
   g.userData.hbCanvas=cv; g.userData.hbTex=tex; g.userData.hbSpr=spr;
   return g;
 }
@@ -633,7 +709,7 @@ function spawnBots(){
     const wkeys=WORDER.slice(0, 2+Math.floor(rand(0,4)));
     const bot={
       mesh, x, z, y:0, vy:0, onGround:true,
-      hp:100+rand(0,80), maxHp:180, alive:true,
+      hp:70+rand(0,40), maxHp:110, alive:true,
       speed:rand(4,6.5), state:"wander", wt:0, wx:x, wz:z,
       weapon: WEAPONS[wkeys[Math.floor(rand(0,wkeys.length))]],
       shootT:rand(0,1.5), aggro:rand(50,95), hitFlash:0,
@@ -778,12 +854,15 @@ function groundHeightAt(x,z){
 //  Shooting
 // ===================================================================
 const raycaster=new THREE.Raycaster();
+raycaster.camera=camera;   // required if any Sprite is ever raycast
 const tmpV=new THREE.Vector3(), tmpD=new THREE.Vector3();
 
 function shoot(){
   const w=WEAPONS[player.cur], inv=player.inv[player.cur];
   const now=performance.now();
-  if(!inv||player.reloading) return;
+  if(!inv) return;
+  if(w.melee){ meleeSwing(w, now); return; }
+  if(player.reloading) return;
   if(now-player.lastShot < w.rof) return;
   if(inv.ammo<=0){ startReload(); return; }
   player.lastShot=now; inv.ammo--;
@@ -802,6 +881,53 @@ function shoot(){
   }
   if(inv.ammo<=0) startReload();
   updateHUD();
+}
+
+// Melee tools (pickaxe / axe): swing to harvest trees & rocks for materials, or hit enemies.
+function meleeSwing(w, now){
+  if(now-player.lastShot < w.rof) return;
+  player.lastShot=now;
+  if(gunMesh){ gunMesh.rotation.x=-1.1; }  // swing anim (recovers in update)
+  camera.getWorldDirection(tmpD);
+  const origin=camera.getWorldPosition(new THREE.Vector3());
+  raycaster.set(origin,tmpD); raycaster.far=w.range;
+  const targets=bulletMeshes.slice();
+  for(const s of structures) targets.push(s.mesh);
+  const botHit=[]; for(const b of bots){ if(b.alive){ targets.push(b.mesh); botHit.push(b);} }
+  const hits=raycaster.intersectObjects(targets,true);
+  if(!hits.length) return;
+  const h=hits[0]; let obj=h.object;
+  // bot?
+  let hitBot=null, o=obj;
+  while(o){ for(const b of botHit){ if(b.mesh===o){hitBot=b;break;} } if(hitBot)break; o=o.parent; }
+  if(hitBot){ const head=h.point.y>hitBot.y+1.7; hitBot.hp-=head?w.dmg*2:w.dmg; hitBot.hitFlash=4; drawHB(hitBot);
+    showHit(head); burst(h.point.x,h.point.y,h.point.z,0xff8080,4); if(hitBot.hp<=0) killBot(hitBot,false); return; }
+  // harvestable (tree/rock)?
+  o=obj; let harv=null;
+  while(o){ if(o.userData && o.userData.harvest){ harv=o; break; } o=o.parent; }
+  if(harv){
+    const bonus = (w.harvest===harv.userData.harvest);
+    const gain = bonus?16:9;
+    player.mats=Math.min(999, player.mats+gain);
+    harv.userData.hp -= bonus?2:1;
+    burst(h.point.x,h.point.y,h.point.z, harv.userData.harvest==="wood"?0xcaa16a:0x9fb4c8, 8);
+    toast("+"+gain+" 🧱");
+    if(harv.userData.hp<=0) removeHarvestable(harv);
+    updateHUD(); return;
+  }
+  // structure?
+  o=obj; let st=null;
+  while(o){ st=structures.find(s=>s.mesh===o); if(st)break; o=o.parent; }
+  if(st){ st.hp-=w.dmg; burst(h.point.x,h.point.y,h.point.z,0xc9a76a,3); if(st.hp<=0) destroyStructure(st); }
+  else burst(h.point.x,h.point.y,h.point.z,0xffffff,3);
+}
+
+function removeHarvestable(mesh){
+  const grp = mesh.userData.rootGroup || mesh;
+  if(grp.parent) grp.parent.remove(grp);
+  const bi=bulletMeshes.indexOf(mesh); if(bi>=0) bulletMeshes.splice(bi,1);
+  if(mesh.userData.col){ const ci=worldColliders.indexOf(mesh.userData.col); if(ci>=0) worldColliders.splice(ci,1); }
+  burst(mesh.getWorldPosition(new THREE.Vector3()).x, 1, mesh.getWorldPosition(new THREE.Vector3()).z, 0xffffff, 10);
 }
 
 function fireRay(origin,dir,range,dmg,friendly){
@@ -838,9 +964,129 @@ function fireRay(origin,dir,range,dmg,friendly){
 }
 
 function destroyStructure(s){
-  burst(s.mesh.position.x,s.mesh.position.y,s.mesh.position.z,0xc9a76a,12);
+  burst(s.mesh.position.x,s.mesh.position.y,s.mesh.position.z, s.kind==="turret"?0x556074:0xc9a76a, s.kind==="turret"?20:12);
   dynGroup.remove(s.mesh);
   structures=structures.filter(x=>x!==s);
+  if(s.kind==="turret") turrets=turrets.filter(x=>x!==s);
+}
+
+// Turret AI: auto-target nearest bot in range with line of sight, then fire.
+function updateTurrets(dt){
+  for(const t of turrets){
+    let best=null,bd=t.range;
+    for(const b of bots){ if(!b.alive) continue;
+      const d=Math.hypot(b.x-t.x,b.z-t.z); if(d<bd){ bd=d; best=b; } }
+    if(!best){ continue; }
+    const tip=new THREE.Vector3(t.x, 3.0, t.z);
+    const aimA=Math.atan2(best.x-t.x, best.z-t.z);   // yaw so barrel (-Z) points at target
+    t.pivot.rotation.y=aimA+Math.PI;
+    t.cool-=dt;
+    if(t.cool<=0){
+      // LOS check against walls/structures/world
+      const dir=new THREE.Vector3(best.x-t.x, (best.y+1.2)-3.0, best.z-t.z).normalize();
+      raycaster.set(tip,dir); raycaster.far=bd;
+      const walls=bulletMeshes.slice(); for(const s of structures){ if(s!==t) walls.push(s.mesh); }
+      const h=raycaster.intersectObjects(walls,true);
+      if(h.length && h[0].distance<bd-1.5){ continue; } // blocked
+      t.cool=0.5;
+      fireRay(tip, dir, t.range, 20, true);
+    }
+  }
+}
+
+// ===================================================================
+//  Vehicles (drivable cars)
+// ===================================================================
+function makeCar(x,z,color){
+  const g=new THREE.Group();
+  const bodyMat=new THREE.MeshStandardMaterial({color,roughness:.4,metalness:.5});
+  const body=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.9,4.6),bodyMat);
+  body.position.y=0.9; body.castShadow=true; g.add(body);
+  const cabin=new THREE.Mesh(new THREE.BoxGeometry(2.0,0.8,2.2),
+    new THREE.MeshStandardMaterial({color:0x1c2230,roughness:.3,metalness:.3}));
+  cabin.position.set(0,1.55,-0.2); cabin.castShadow=true; g.add(cabin);
+  const glass=new THREE.Mesh(new THREE.BoxGeometry(2.02,0.6,0.1),
+    new THREE.MeshStandardMaterial({color:0x88d0ff,transparent:true,opacity:.5}));
+  glass.position.set(0,1.55,0.9); g.add(glass);
+  // Ukraine stripe
+  const stripeB=new THREE.Mesh(new THREE.BoxGeometry(2.42,0.22,0.3),new THREE.MeshStandardMaterial({color:0x0057b7}));
+  stripeB.position.set(0,1.15,2.31); g.add(stripeB);
+  const stripeY=new THREE.Mesh(new THREE.BoxGeometry(2.42,0.22,0.3),new THREE.MeshStandardMaterial({color:0xffd700}));
+  stripeY.position.set(0,0.93,2.31); g.add(stripeY);
+  const wheels=[];
+  const wm=new THREE.MeshStandardMaterial({color:0x14161c,roughness:.9});
+  for(const [wx,wz] of [[-1.25,1.5],[1.25,1.5],[-1.25,-1.5],[1.25,-1.5]]){
+    const w=new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.6,0.4,12),wm);
+    w.rotation.z=Math.PI/2; w.position.set(wx,0.6,wz); w.castShadow=true; g.add(w); wheels.push(w);
+  }
+  g.position.set(x,0,z);
+  return {mesh:g, wheels};
+}
+function spawnCars(){
+  const colors=[0xd23b3b,0x2f6fd2,0x2fbf5f,0xd2a02f,0x8a2fd2,0x333a48];
+  const spots=[[CITY.x-40,CITY.z],[CITY.x+40,CITY.z-20],[CITY.x,CITY.z+45],
+    [-60,80],[120,-90],[-140,-40],[40,150]];
+  for(let i=0;i<spots.length;i++){
+    const [x,z]=spots[i];
+    const c=makeCar(x,z,colors[i%colors.length]);
+    dynGroup.add(c.mesh);
+    cars.push({mesh:c.mesh, wheels:c.wheels, x, z, heading:rand(0,6.28), speed:0});
+  }
+}
+function toggleVehicle(){
+  if(player.skydiving) return;
+  if(player.vehicle){
+    // exit beside the car
+    const car=player.vehicle; player.vehicle=null;
+    const rx=Math.cos(car.heading), rz=-Math.sin(car.heading);
+    player.pos.set(car.x+rx*2.6, 0, car.z+rz*2.6);
+    player.vel.set(0,0,0);
+    toast("Ти вийшов з машини");
+    updateModeTag();
+    return;
+  }
+  // enter nearest car
+  let best=null,bd=5;
+  for(const car of cars){ const d=Math.hypot(car.x-player.pos.x, car.z-player.pos.z); if(d<bd){ bd=d; best=car; } }
+  if(best){ player.vehicle=best; buildMode=false; updateModeTag();
+    toast("🚗 За кермом! WASD — їхати, F — вийти"); }
+  else toast("Поруч немає машини (F біля машини)");
+}
+function updateVehicle(dt){
+  const car=player.vehicle;
+  // controls
+  const acc=22, brake=30, maxF=42, maxR=-16;
+  if(keys["KeyW"]||keys["ArrowUp"]) car.speed+=acc*dt;
+  else if(keys["KeyS"]||keys["ArrowDown"]) car.speed-=brake*dt;
+  else car.speed*=(1-1.2*dt); // coast
+  car.speed=clamp(car.speed,maxR,maxF);
+  // steering scales with speed & direction
+  const steer=1.8*dt*clamp(car.speed/12,-1,1);
+  if(keys["KeyA"]||keys["ArrowLeft"]) car.heading+=steer;
+  if(keys["KeyD"]||keys["ArrowRight"]) car.heading-=steer;
+  const fx=Math.sin(car.heading), fz=Math.cos(car.heading);
+  let nx=car.x+fx*car.speed*dt, nz=car.z+fz*car.speed*dt;
+  // collision (treat car as circle r~1.8)
+  const R=1.8; let blocked=false;
+  const hitBox=(minx,maxx,minz,maxz)=>{ const cx=clamp(nx,minx,maxx),cz=clamp(nz,minz,maxz);
+    return (nx-cx)*(nx-cx)+(nz-cz)*(nz-cz)<R*R; };
+  for(const c of worldColliders){ if(hitBox(c.minx,c.maxx,c.minz,c.maxz)){blocked=true;break;} }
+  if(!blocked) for(const s of structures){ if(s.col && hitBox(s.col.minx,s.col.maxx,s.col.minz,s.col.maxz)){blocked=true;break;} }
+  if(blocked){ car.speed*=-0.25; }
+  else { car.x=clamp(nx,-WORLD+3,WORLD-3); car.z=clamp(nz,-WORLD+3,WORLD-3); }
+  // run over bots
+  for(const b of bots){ if(b.alive && Math.hypot(b.x-car.x,b.z-car.z)<2.2 && Math.abs(car.speed)>10){ b.hp-=60*dt*Math.abs(car.speed)/20; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } }
+  // apply to mesh
+  car.mesh.position.set(car.x,0,car.z);
+  car.mesh.rotation.y=car.heading;
+  for(const w of car.wheels) w.rotation.x+=car.speed*dt*1.5;
+  // player rides + camera faces forward
+  player.pos.set(car.x,0,car.z);
+  player.yaw=car.heading+Math.PI;   // look in driving direction
+  camera.position.set(car.x, 2.4, car.z);
+  camera.rotation.set(player.pitch*0.5, player.yaw, 0, "YXZ");
+  const wantFov=75+clamp(Math.abs(car.speed),0,40)*0.4;  // speed FOV
+  camera.fov+=(wantFov-camera.fov)*Math.min(1,dt*6); camera.updateProjectionMatrix();
 }
 
 function startReload(){
@@ -941,14 +1187,15 @@ addEventListener("keydown",e=>{
   keys[e.code]=true;
   if(!running) return;
   const c=e.code;
-  if(c==="KeyB"){ buildMode=!buildMode; updateModeTag(); }
+  if(c==="KeyB"){ if(!player.vehicle){ buildMode=!buildMode; updateModeTag(); } }
   else if(c==="KeyR"){ startReload(); }
   else if(c==="KeyE"){ tryOpenChest(); }
-  else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
-  else if(/^Digit[1-5]$/.test(c)){
+  else if(c==="KeyF"){ toggleVehicle(); }
+  else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
+  else if(/^Digit[1-7]$/.test(c)){
     const n=c.slice(5);
-    if(buildMode){ buildPiece = n==="1"?"wall":n==="2"?"ramp":"floor"; buildInvBar(); }
-    else { const wname=WORDER[parseInt(n)-1]; if(player.inv[wname]){ selectWeapon(wname); } }
+    if(buildMode){ buildPiece = n==="1"?"wall":n==="2"?"ramp":n==="3"?"floor":n==="4"?"turret":buildPiece; buildInvBar(); updateGhost(); }
+    else { const wname=ALLSEL[parseInt(n)-1]; if(wname && player.inv[wname]){ selectWeapon(wname); } }
   }
 });
 addEventListener("keyup",e=>{ keys[e.code]=false; });
@@ -998,7 +1245,7 @@ function tryOpenChest(){
 function buildInvBar(){
   const bar=document.getElementById("invbar"); bar.innerHTML="";
   if(buildMode){
-    const pieces=[["wall","Стіна","1"],["ramp","Рампа","2"],["floor","Підлога","3"]];
+    const pieces=[["wall","Стіна","1"],["ramp","Рампа","2"],["floor","Підлога","3"],["turret","Турель 30🧱","4"]];
     for(const [id,label,key] of pieces){
       const d=document.createElement("div");
       d.className="slot"+(buildPiece===id?" active":"");
@@ -1006,8 +1253,8 @@ function buildInvBar(){
       bar.appendChild(d);
     }
   } else {
-    for(let i=0;i<WORDER.length;i++){
-      const w=WORDER[i]; const owned=player.inv[w];
+    for(let i=0;i<ALLSEL.length;i++){
+      const w=ALLSEL[i]; const owned=player.inv[w];
       const d=document.createElement("div");
       d.className="slot"+(player.cur===w?" active":"")+(owned?"":" empty");
       d.innerHTML=`<span class="k">${i+1}</span>${WEAPONS[w].name}`;
@@ -1025,7 +1272,8 @@ function updateHUD(){
   document.getElementById("matVal").textContent=player.mats;
   const w=WEAPONS[player.cur], inv=player.inv[player.cur];
   document.getElementById("wpnName").textContent=w.name;
-  document.getElementById("ammo").innerHTML= player.reloading? "…<small> перезарядка</small>"
+  document.getElementById("ammo").innerHTML= w.melee ? "🪓<small> інструмент</small>"
+     : player.reloading? "…<small> перезарядка</small>"
      : (inv?inv.ammo:0)+"<small> / "+(inv?inv.reserve:0)+"</small>";
   const alive=bots.filter(b=>b.alive).length+ (player.alive?1:0);
   document.getElementById("aliveVal").textContent=alive;
@@ -1152,7 +1400,9 @@ function update(dt){
 
   if(player.skydiving){ updateSkydive(dt); updateStorm(dt); drawMini(); return; }
 
-  // ---- Player movement ----
+  // ---- Player control (on foot, unless driving) ----
+  if(player.vehicle){ updateVehicle(dt); }
+  else {
   const sprint = (keys["ShiftLeft"]||keys["ShiftRight"])?1.7:1;
   const speed = 6.8*sprint;
   let mx=0,mz=0;
@@ -1185,6 +1435,7 @@ function update(dt){
   camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
   // gun recover
   if(gunMesh){ gunMesh.position.z += (-0.95-gunMesh.position.z)*Math.min(1,dt*12);
+    gunMesh.rotation.x += (0-gunMesh.rotation.x)*Math.min(1,dt*10);   // melee swing recover
     // sway
     gunMesh.position.x=0.28+Math.sin(performance.now()*0.003)*(mx||mz?0.01:0.003);
     gunMesh.position.y=-0.26+Math.cos(performance.now()*0.006)*(mx||mz?0.01:0.003);
@@ -1206,6 +1457,7 @@ function update(dt){
 
   // ghost preview
   if(buildMode) updateGhost();
+  }  // end on-foot control
 
   // ---- Chests auto-hint / loot pickup ----
   for(const c of chests){ if(!c.opened){ c.bob+=dt*3; c.lid.position.y=1.0+Math.sin(c.bob)*0.03; } }
@@ -1277,6 +1529,10 @@ function update(dt){
   // ---- Storm ----
   updateStorm(dt);
 
+  // ---- Turrets + idle car wheels ----
+  updateTurrets(dt);
+  for(const car of cars){ if(car!==player.vehicle) for(const w of car.wheels) w.rotation.x+=0; }
+
   // sun follows player (shadow coverage)
   sun.position.set(player.pos.x+120, 220, player.pos.z+90);
   sun.target.position.set(player.pos.x,0,player.pos.z);
@@ -1324,7 +1580,7 @@ function startGame(){
   player.pitch=-0.55;                                     // look down
 
   storm=makeStorm();
-  spawnBots(); spawnChests();
+  spawnBots(); spawnChests(); spawnCars();
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
 
   // helicopter drops you off
