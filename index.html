@@ -324,6 +324,118 @@ for(let i=0;i<7;i++){
   houses.push(makeHouse(x,z, rand(6,9), rand(6,9)));
 }
 
+// ---- Ukraine flags (waving, everywhere) ----
+const flagAnims=[];
+const extraChestSpots=[];
+function makeFlag(x,y,z,scale){
+  scale=scale||1;
+  const g=new THREE.Group();
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.1,6.5,6),
+    new THREE.MeshStandardMaterial({color:0xd7dbe2,metalness:.4,roughness:.5}));
+  pole.position.y=3.25; pole.castShadow=true; g.add(pole);
+  const blue=new THREE.Mesh(new THREE.PlaneGeometry(2.7,0.9,10,1),
+    new THREE.MeshStandardMaterial({color:0x0057b7,side:THREE.DoubleSide,roughness:.9,metalness:0}));
+  blue.position.set(1.4,5.7,0); g.add(blue);
+  const yellow=new THREE.Mesh(new THREE.PlaneGeometry(2.7,0.9,10,1),
+    new THREE.MeshStandardMaterial({color:0xffd700,side:THREE.DoubleSide,roughness:.9,metalness:0}));
+  yellow.position.set(1.4,4.8,0); g.add(yellow);
+  const ball=new THREE.Mesh(new THREE.SphereGeometry(0.16,8,8),
+    new THREE.MeshStandardMaterial({color:0xffd700,metalness:.6,roughness:.3}));
+  ball.position.y=6.6; g.add(ball);
+  g.position.set(x,y,z); g.rotation.y=rand(0,6.28); g.scale.setScalar(scale);
+  staticGroup.add(g);
+  flagAnims.push({blue,yellow,phase:rand(0,6.28)});
+  return g;
+}
+// giant flag at the very center as a landmark
+(function bigFlag(){
+  const g=makeFlag(0,0,0,3.4);
+})();
+
+// ---- Mountains ring ----
+function makeMountain(x,z,r,h){
+  const m=new THREE.Mesh(new THREE.ConeGeometry(r,h,7,1),
+    new THREE.MeshStandardMaterial({color:0x6b6e77,roughness:1,flatShading:true}));
+  m.position.set(x,h/2,z); m.castShadow=m.receiveShadow=true; staticGroup.add(m);
+  m.updateMatrixWorld(); bulletMeshes.push(m);
+  const cap=new THREE.Mesh(new THREE.ConeGeometry(r*0.42,h*0.34,7,1),
+    new THREE.MeshStandardMaterial({color:0xeef3ff,roughness:.8,flatShading:true}));
+  cap.position.set(x,h-h*0.17,z); cap.castShadow=true; staticGroup.add(cap);
+  addBoxCollider(x,z,r*0.5,r*0.5);
+}
+{
+  const ring=[[-1,-1],[0,-1],[1,-1],[-1,1],[0,1],[1,1],[-1,0],[1,0]];
+  for(const [sx,sz] of ring){
+    const x=sx*(WORLD-40)+rand(-25,25), z=sz*(WORLD-40)+rand(-25,25);
+    makeMountain(x,z, rand(30,55), rand(45,95));
+  }
+}
+
+// ---- City (downtown skyline with skyscrapers, streets, flags) ----
+const CITY={x:110,z:110};
+function buildCity2(cx,cz){
+  const palette=[0x8a95a5,0x9aa0ad,0x6f7a88,0xa79b8b,0x5f6b7a,0xb0a487];
+  const winMat=new THREE.MeshStandardMaterial({color:0x223047,emissive:0x2a3a55,emissiveIntensity:.35,roughness:.5});
+  const cols=6, rows=6, block=30;
+  for(let i=0;i<cols;i++) for(let j=0;j<rows;j++){
+    if(Math.random()<0.14) continue; // plaza / gap
+    const bx=cx+(i-(cols-1)/2)*block, bz=cz+(j-(rows-1)/2)*block;
+    const w=rand(6.5,10.5), d=rand(6.5,10.5), h=rand(12,50);
+    const col=palette[Math.floor(rand(0,palette.length))];
+    const b=new THREE.Mesh(new THREE.BoxGeometry(w*2,h,d*2),
+      new THREE.MeshStandardMaterial({color:col,roughness:.85}));
+    b.position.set(bx,h/2,bz); b.castShadow=b.receiveShadow=true; staticGroup.add(b);
+    b.updateMatrixWorld(); bulletMeshes.push(b); addBoxCollider(bx,bz,w,d);
+    // window strip accents
+    const strip=new THREE.Mesh(new THREE.BoxGeometry(w*2+0.1,h*0.7,0.2),winMat);
+    strip.position.set(bx,h*0.5,bz+d); staticGroup.add(strip);
+    const strip2=new THREE.Mesh(new THREE.BoxGeometry(0.2,h*0.7,d*2+0.1),winMat);
+    strip2.position.set(bx+w,h*0.5,bz); staticGroup.add(strip2);
+    // rooftop flag on taller buildings
+    if(h>26 || Math.random()<0.4) makeFlag(bx,h,bz, rand(1.1,1.8));
+    // chest at the base
+    if(Math.random()<0.5) extraChestSpots.push([bx+rand(-w-3,w+3), bz+d+rand(1,4)]);
+  }
+  // central plaza flags
+  for(let k=0;k<4;k++) makeFlag(cx+rand(-14,14),0,cz+rand(-14,14), rand(1.4,2.2));
+}
+buildCity2(CITY.x, CITY.z);
+
+// scatter extra flags across the whole island
+for(let i=0;i<26;i++){
+  const x=rand(-WORLD+30,WORLD-30), z=rand(-WORLD+30,WORLD-30);
+  if(Math.hypot(x,z)<10) continue;
+  makeFlag(x,0,z, rand(0.9,1.5));
+}
+
+// ---- Helicopter (deployment) ----
+function makeHeli(){
+  const g=new THREE.Group();
+  const dark=new THREE.MeshStandardMaterial({color:0x2b3340,roughness:.5,metalness:.4});
+  const body=new THREE.Mesh(new THREE.SphereGeometry(2.2,14,12),dark); body.scale.set(1,0.9,1.8); g.add(body);
+  const glass=new THREE.Mesh(new THREE.SphereGeometry(1.5,12,10),
+    new THREE.MeshStandardMaterial({color:0x5fd0ff,transparent:true,opacity:.5,metalness:.3}));
+  glass.scale.set(1,0.9,1.2); glass.position.set(0,0.2,2.1); g.add(glass);
+  const tail=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.6,5),dark); tail.position.set(0,0.4,-4.4); g.add(tail);
+  const fin=new THREE.Mesh(new THREE.BoxGeometry(0.3,2,1),dark); fin.position.set(0,1.2,-6.6); g.add(fin);
+  const skid=new THREE.MeshStandardMaterial({color:0x1a1f28});
+  for(const s of [-1.4,1.4]){ const m=new THREE.Mesh(new THREE.BoxGeometry(0.25,0.25,5),skid); m.position.set(s,-2,0); g.add(m); }
+  const rotor=new THREE.Group();
+  const bl=new THREE.MeshStandardMaterial({color:0x11151c});
+  for(let i=0;i<4;i++){ const blade=new THREE.Mesh(new THREE.BoxGeometry(13,0.12,0.7),bl); blade.rotation.y=i*Math.PI/2; rotor.add(blade); }
+  rotor.position.y=2.3; g.add(rotor);
+  const trotor=new THREE.Group();
+  const tb=new THREE.Mesh(new THREE.BoxGeometry(0.1,2.4,0.3),bl); trotor.add(tb);
+  trotor.position.set(0.4,0.4,-6.8); g.add(trotor);
+  // Ukraine tail flag
+  const flag=new THREE.Mesh(new THREE.PlaneGeometry(1.6,1,1,1),
+    new THREE.MeshStandardMaterial({color:0x0057b7,side:THREE.DoubleSide}));
+  flag.position.set(0,1.2,-6.9); g.add(flag);
+  g.userData={rotor,trotor};
+  return g;
+}
+let heli=null, heliT=0;
+
 // ===================================================================
 //  Weapons
 // ===================================================================
@@ -539,6 +651,7 @@ function spawnChests(){
   // near houses + scattered
   const spots=[];
   for(const h of houses) spots.push([h.cx,h.cz]);
+  for(const s of extraChestSpots) spots.push(s);   // city chests
   for(let i=0;i<24;i++) spots.push([rand(-WORLD+20,WORLD-20),rand(-WORLD+20,WORLD-20)]);
   for(const [x,z] of spots){
     const g=new THREE.Group();
@@ -610,8 +723,8 @@ function updateStorm(dt){
   s.mesh.position.set(s.cx,30,s.cz);
   s.mesh.scale.set(s.radius,1,s.radius);
 
-  // damage player outside
-  if(player.alive && Math.hypot(player.pos.x-s.cx, player.pos.z-s.cz)>s.radius){
+  // damage player outside (not while parachuting in)
+  if(player.alive && !player.skydiving && Math.hypot(player.pos.x-s.cx, player.pos.z-s.cz)>s.radius){
     damagePlayer(7*dt*(1+s.phase*0.25), true);
   }
   // damage bots outside
@@ -821,26 +934,31 @@ function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg
 // ===================================================================
 //  Input
 // ===================================================================
+// Keys are tracked by physical code (e.code) so movement works on ANY keyboard
+// layout — Ukrainian/Cyrillic, AZERTY, etc. (e.key would give "ц" for W).
 const keys={};
 addEventListener("keydown",e=>{
-  const k=e.key.toLowerCase(); keys[k]=true;
+  keys[e.code]=true;
   if(!running) return;
-  if(k==="b"){ buildMode=!buildMode; updateModeTag(); }
-  else if(k==="r"){ startReload(); }
-  else if(k==="e"){ tryOpenChest(); }
-  else if(k===" "){ e.preventDefault(); if(player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
-  else if("12345".includes(k)){
-    if(buildMode){ buildPiece = k==="1"?"wall":k==="2"?"ramp":"floor"; }
-    else { const wname=WORDER[parseInt(k)-1]; if(player.inv[wname]){ selectWeapon(wname); } }
+  const c=e.code;
+  if(c==="KeyB"){ buildMode=!buildMode; updateModeTag(); }
+  else if(c==="KeyR"){ startReload(); }
+  else if(c==="KeyE"){ tryOpenChest(); }
+  else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
+  else if(/^Digit[1-5]$/.test(c)){
+    const n=c.slice(5);
+    if(buildMode){ buildPiece = n==="1"?"wall":n==="2"?"ramp":"floor"; buildInvBar(); }
+    else { const wname=WORDER[parseInt(n)-1]; if(player.inv[wname]){ selectWeapon(wname); } }
   }
 });
-addEventListener("keyup",e=>{ keys[e.key.toLowerCase()]=false; });
+addEventListener("keyup",e=>{ keys[e.code]=false; });
 
 let mouseDown=false;
 renderer.domElement.addEventListener("mousedown",e=>{
   if(!running) return;
   if(document.pointerLockElement!==renderer.domElement){ renderer.domElement.requestPointerLock(); return; }
   mouseDown=true;
+  if(player.skydiving) return;   // no shooting while parachuting in
   if(buildMode) placeStructure();
   else shoot();
 });
@@ -943,15 +1061,103 @@ function drawMini(){
 // ===================================================================
 //  Update loop
 // ===================================================================
+//  Deployment: helicopter + skydive + parachute
+// ===================================================================
+let parachuteMesh=null;
+function makeParachute(){
+  const g=new THREE.Group();
+  const blue=new THREE.Mesh(new THREE.SphereGeometry(3.2,18,10,0,Math.PI*2,0,Math.PI*0.5),
+    new THREE.MeshStandardMaterial({color:0x0057b7,side:THREE.DoubleSide,roughness:.85}));
+  g.add(blue);
+  const yellow=new THREE.Mesh(new THREE.CylinderGeometry(3.2,2.4,0.9,18,1,true),
+    new THREE.MeshStandardMaterial({color:0xffd700,side:THREE.DoubleSide,roughness:.85}));
+  yellow.position.y=-0.45; g.add(yellow);
+  const strMat=new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.5});
+  for(let i=0;i<6;i++){
+    const a=i/6*Math.PI*2;
+    const geo=new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(Math.cos(a)*2.6,-0.9,Math.sin(a)*2.6), new THREE.Vector3(0,-4,0)]);
+    g.add(new THREE.Line(geo,strMat));
+  }
+  return g;
+}
+function deployParachute(){
+  player.parachute=true;
+  player.vel.y=Math.max(player.vel.y,-8);
+  parachuteMesh=makeParachute(); scene.add(parachuteMesh);
+  toast("Парашут розкрито 🪂");
+}
+function updateSkydive(dt){
+  // look with mouse (yaw/pitch already updated in mousemove)
+  camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
+  // horizontal glide (WASD relative to look)
+  let mx=0,mz=0;
+  if(keys["KeyW"]||keys["ArrowUp"]) mz-=1; if(keys["KeyS"]||keys["ArrowDown"]) mz+=1;
+  if(keys["KeyA"]||keys["ArrowLeft"]) mx-=1; if(keys["KeyD"]||keys["ArrowRight"]) mx+=1;
+  const yaw=player.yaw; let wx=0,wz=0;
+  if(mx||mz){ const l=Math.hypot(mx,mz); mx/=l; mz/=l;
+    const fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
+    wx=fx*(-mz)+rx*mx; wz=fz*(-mz)+rz*mx; }
+  const glide=player.parachute?22:32;
+  player.pos.x=clamp(player.pos.x+wx*glide*dt,-WORLD+2,WORLD-2);
+  player.pos.z=clamp(player.pos.z+wz*glide*dt,-WORLD+2,WORLD-2);
+  // descent
+  player.vel.y-=GRAV*0.5*dt;
+  if(!player.parachute && player.pos.y<58) deployParachute();
+  const cap=player.parachute?-11:-48;
+  if(player.vel.y<cap) player.vel.y=cap;
+  player.pos.y+=player.vel.y*dt;
+  const gh=groundHeightAt(player.pos.x,player.pos.z);
+  if(player.pos.y<=gh){
+    player.pos.y=gh; player.vel.y=0; player.skydiving=false; player.onGround=true;
+    player.pitch=0;   // level the view on landing
+    if(parachuteMesh){ scene.remove(parachuteMesh); parachuteMesh=null; }
+    toast("Приземлення! Час виживати 🔫");
+    warnEl.style.opacity=0;
+  }
+  camera.position.set(player.pos.x, player.pos.y+EYE, player.pos.z);
+  if(parachuteMesh){ parachuteMesh.position.set(player.pos.x, player.pos.y+5.4, player.pos.z);
+    parachuteMesh.rotation.y=player.yaw; }
+  // altitude readout in warn line
+  warnEl.textContent="🪂 Висота: "+Math.max(0,Math.round(player.pos.y))+" м — керуй WASD";
+  warnEl.style.opacity=1;
+}
+function animWorld(dt){
+  // waving flags
+  const t=performance.now()*0.004;
+  for(const f of flagAnims){
+    const s=Math.sin(t+f.phase)*0.18;
+    f.blue.rotation.z=s; f.yellow.rotation.z=s*0.9;
+    f.blue.rotation.y=Math.sin(t*0.5+f.phase)*0.1;
+    f.yellow.rotation.y=f.blue.rotation.y;
+  }
+  // helicopter
+  if(heli){
+    heli.userData.rotor.rotation.y+=dt*30;
+    heli.userData.trotor.rotation.x+=dt*40;
+    heliT+=dt;
+    // fly forward slowly, drift away after deployment
+    heli.position.x+=Math.cos(heli.userData.dir)*18*dt;
+    heli.position.z+=Math.sin(heli.userData.dir)*18*dt;
+    heli.position.y=150+Math.sin(heliT*0.6)*3;
+    if(heliT>16){ dynGroup.remove(heli); heli=null; }
+  }
+}
+
+// ===================================================================
 function update(dt){
   if(state!=="play") return;
 
+  animWorld(dt);   // flags waving + helicopter
+
+  if(player.skydiving){ updateSkydive(dt); updateStorm(dt); drawMini(); return; }
+
   // ---- Player movement ----
-  const sprint = keys["shift"]?1.6:1;
-  const speed = 6.5*sprint;
+  const sprint = (keys["ShiftLeft"]||keys["ShiftRight"])?1.7:1;
+  const speed = 6.8*sprint;
   let mx=0,mz=0;
-  if(keys["w"]) mz-=1; if(keys["s"]) mz+=1;
-  if(keys["a"]) mx-=1; if(keys["d"]) mx+=1;
+  if(keys["KeyW"]||keys["ArrowUp"]) mz-=1; if(keys["KeyS"]||keys["ArrowDown"]) mz+=1;
+  if(keys["KeyA"]||keys["ArrowLeft"]) mx-=1; if(keys["KeyD"]||keys["ArrowRight"]) mx+=1;
   const yaw=player.yaw;
   // forward/right in world
   let wx=0,wz=0;
@@ -1104,16 +1310,31 @@ function startGame(){
   document.getElementById("endScreen").classList.add("hidden");
   document.getElementById("killfeed").innerHTML="";
   clearGroup();
+  Object.keys(keys).forEach(k=>keys[k]=false);  // clear stale keys
+  heli=null; if(parachuteMesh){scene.remove(parachuteMesh);parachuteMesh=null;}
   player=makePlayer();
   killCount=0; buildMode=false; buildPiece="wall";
-  // spawn near center-ish
-  player.pos.set(rand(-30,30),0,rand(-30,30));
-  player.yaw=rand(0,Math.PI*2);
+
+  // ---- Deploy: start high in the sky above the city, jump from a helicopter ----
+  const dropX=CITY.x+rand(-30,30), dropZ=CITY.z+rand(-30,30);
+  player.pos.set(dropX,130,dropZ);
+  player.vel.set(0,-4,0);
+  player.skydiving=true; player.parachute=false;
+  player.yaw=Math.atan2(-(CITY.x-dropX),-(CITY.z-dropZ)); // face city
+  player.pitch=-0.55;                                     // look down
+
   storm=makeStorm();
   spawnBots(); spawnChests();
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
+
+  // helicopter drops you off
+  heli=makeHeli(); heliT=0;
+  heli.userData.dir=player.yaw+Math.PI/2;
+  heli.position.set(dropX-28,135,dropZ-28);
+  dynGroup.add(heli);
+
   document.getElementById("zoneVal").textContent="1";
-  warnEl.style.opacity=0;
+  toast("Стрибок! Керуй WASD, приземлись у місті 🏙️");
   state="play"; running=true; lastTime=performance.now();
   renderer.domElement.requestPointerLock();
   requestAnimationFrame(loop);

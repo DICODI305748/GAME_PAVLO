@@ -43,6 +43,12 @@ Headshots deal **double damage**. You start with a Pistol + AR; loot the rest fr
 
 Switch to Build mode (**B**) and place **full-size walls, climbable ramps, and floors** that snap to a grid, block bullets and body-block enemies — exactly the cover-building loop the genre is known for. Each piece costs 10 materials; gather more from chests and kills.
 
+## 🚁 Helicopter deploy + city
+
+Every match starts with a **helicopter drop**: you skydive from ~130m, free-fall, then a **blue-and-yellow parachute** opens and you glide down with WASD onto a **downtown full of skyscrapers**. The island is dotted with **waving Ukrainian flags**, snow-capped **mountains** ring the map, and there are far more buildings and landmarks to fight over.
+
+> **Keyboard layout note:** movement reads *physical* keys (`e.code`), so WASD works on any layout — including Ukrainian/Cyrillic. (Earlier it broke because the browser reported "ц" instead of "w".)
+
 ## 🌪️ Battle royale systems
 
 - **Shrinking Storm** — a purple zone that closes in over multiple phases and damages anyone caught outside.
