@@ -1,6 +1,6 @@
 # 🌩️ Storm Royale 3D
 
-A full **3D first-person battle royale** in a single HTML file, built with [Three.js](https://threejs.org). Real Fortnite-style building (proper walls, ramps and floors — not tiny cubes), five distinct weapons, a shrinking storm, loot chests and 49 AI opponents. Drop in, loot, build, and be the last one standing.
+A full **3D first-person battle royale** in a single HTML file, built with [Three.js](https://threejs.org). Real Fortnite-style building (walls, climbable ladders and floors — not tiny cubes), seven weapons & tools, drivable vehicles, placeable turrets, procedural sound, a shrinking storm, loot chests and 49 AI opponents. Drop in, loot, build, and be the last one standing.
 
 ## ▶️ Play
 
@@ -22,7 +22,7 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 | **WASD** | Move · **Shift** sprint · **Space** jump |
 | **Mouse** | Look · **LMB** shoot / place build piece |
 | **B** | Toggle **Combat / Build** mode |
-| **1–7** | Combat: 1-5 guns, 6 pickaxe, 7 axe · Build: 1 wall, 2 ramp, 3 floor, 4 turret (30🧱) |
+| **1–7** | Combat: 1-5 guns, 6 pickaxe, 7 axe · Build: 1 wall, 2 ladder, 3 floor, 4 turret (30🧱) |
 | **F** | Enter / exit a **car** |
 | **Mouse wheel** | Cycle weapons |
 | **R** | Reload |
@@ -30,7 +30,7 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 
 ## 🚗 Vehicles, turrets & harvesting tools
 
-- **Drivable cars** — walk up to a car and press **F** to get in. Drive with WASD (accelerate, reverse, steer), and run over enemies at speed. Press **F** again to get out.
+- **Drivable cars & a ТЦК van** — walk up to any vehicle and press **F** to get in. Drive with WASD (accelerate, reverse, steer), and run over enemies at speed. Press **F** again to get out.
 - **Auto-turret** — in Build mode, select slot **4** to place a turret for **30 materials**. It automatically targets and fires at nearby enemies with line-of-sight, and has its own health.
 - **Pickaxe & axe** (slots **6** and **7**) — melee tools that harvest materials. Hit **rocks** with the pickaxe and **trees** with the axe (right tool = bonus materials), or use them as close-range weapons.
 
@@ -48,11 +48,15 @@ Headshots deal **double damage**. You start with a Pistol + AR; loot the rest fr
 
 ## 🧱 Real building
 
-Switch to Build mode (**B**) and place **full-size walls, climbable ramps, and floors** that snap to a grid, block bullets and body-block enemies — exactly the cover-building loop the genre is known for. Each piece costs 10 materials; gather more from chests and kills.
+Switch to Build mode (**B**) and place **full-size walls, climbable ladders, and floors** that snap to a grid, block bullets and body-block enemies — exactly the cover-building loop the genre is known for. Face a ladder and hold **W** to climb it. Each piece costs 10 materials; gather more from chests and kills.
 
-## 🚁 Helicopter deploy + city
+## 🔊 Sound
 
-Every match starts with a **helicopter drop**: you skydive from ~130m, free-fall, then a **blue-and-yellow parachute** opens and you glide down with WASD onto a **downtown full of skyscrapers**. The island is dotted with **waving Ukrainian flags**, snow-capped **mountains** ring the map, and there are far more buildings and landmarks to fight over.
+Weapon fire, reloads, hitmarkers and turret shots are all synthesized in-browser with the Web Audio API — no external audio files, works fully offline. Each weapon has its own report (punchy pistol, snappy SMG, boomy shotgun, cracking sniper).
+
+## 🚁 Helicopter deploy + locations
+
+Every match starts with a **helicopter drop**: you skydive from ~130m, free-fall, then a **blue-and-yellow parachute** opens and you glide down with WASD. Explore themed landmarks — a **МАГАЗИН (shop)** stuffed with loot, a **ТЦК** compound (with its own **ТЦК бусік** van parked outside), plus **waving Ukrainian flags** everywhere and snow-capped **mountains** ringing the map.
 
 > **Keyboard layout note:** movement reads *physical* keys (`e.code`), so WASD works on any layout — including Ukrainian/Cyrillic. (Earlier it broke because the browser reported "ц" instead of "w".)
 

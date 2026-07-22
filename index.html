@@ -121,7 +121,7 @@
       <b>WASD</b><span>Рух · <b>Shift</b> біг · <b>Space</b> стрибок</span>
       <b>Миша</b><span>Огляд · ЛКМ — стріляти / будувати</span>
       <b>B</b><span>Перемкнути режим Бій / Будівництво</span>
-      <b>1–7</b><span>Бій: 1-5 зброя, 6 кірка, 7 сокира · Будівництво: 1 стіна, 2 рампа, 3 підлога, 4 турель (30🧱)</span>
+      <b>1–7</b><span>Бій: 1-5 зброя, 6 кірка, 7 сокира · Будівництво: 1 стіна, 2 драбина, 3 підлога, 4 турель (30🧱)</span>
       <b>F</b><span>Сісти / вийти з <b>машини</b> 🚗</span>
       <b>R</b><span>Перезарядка · <b>колесо</b> миші — зброя</span>
       <b>E</b><span>Відкрити скриню · кіркою/сокирою бий дерева й каміння заради 🧱</span>
@@ -376,35 +376,55 @@ function makeMountain(x,z,r,h){
   }
 }
 
-// ---- City (downtown skyline with skyscrapers, streets, flags) ----
-const CITY={x:110,z:110};
-function buildCity2(cx,cz){
-  const palette=[0x8a95a5,0x9aa0ad,0x6f7a88,0xa79b8b,0x5f6b7a,0xb0a487];
-  const winMat=new THREE.MeshStandardMaterial({color:0x223047,emissive:0x2a3a55,emissiveIntensity:.35,roughness:.5});
-  const cols=6, rows=6, block=30;
-  for(let i=0;i<cols;i++) for(let j=0;j<rows;j++){
-    if(Math.random()<0.14) continue; // plaza / gap
-    const bx=cx+(i-(cols-1)/2)*block, bz=cz+(j-(rows-1)/2)*block;
-    const w=rand(6.5,10.5), d=rand(6.5,10.5), h=rand(12,50);
-    const col=palette[Math.floor(rand(0,palette.length))];
-    const b=new THREE.Mesh(new THREE.BoxGeometry(w*2,h,d*2),
-      new THREE.MeshStandardMaterial({color:col,roughness:.85}));
-    b.position.set(bx,h/2,bz); b.castShadow=b.receiveShadow=true; staticGroup.add(b);
-    b.updateMatrixWorld(); bulletMeshes.push(b); addBoxCollider(bx,bz,w,d);
-    // window strip accents
-    const strip=new THREE.Mesh(new THREE.BoxGeometry(w*2+0.1,h*0.7,0.2),winMat);
-    strip.position.set(bx,h*0.5,bz+d); staticGroup.add(strip);
-    const strip2=new THREE.Mesh(new THREE.BoxGeometry(0.2,h*0.7,d*2+0.1),winMat);
-    strip2.position.set(bx+w,h*0.5,bz); staticGroup.add(strip2);
-    // rooftop flag on taller buildings
-    if(h>26 || Math.random()<0.4) makeFlag(bx,h,bz, rand(1.1,1.8));
-    // chest at the base
-    if(Math.random()<0.5) extraChestSpots.push([bx+rand(-w-3,w+3), bz+d+rand(1,4)]);
-  }
-  // central plaza flags
-  for(let k=0;k<4;k++) makeFlag(cx+rand(-14,14),0,cz+rand(-14,14), rand(1.4,2.2));
+// ---- Named locations (shop, TCK) + a ТЦК van elsewhere ----
+const LOC={ shop:{x:-95,z:70}, tck:{x:120,z:-85}, busik:{x:118,z:-72}, drop:{x:0,z:0} };
+
+// text sign board (canvas texture)
+function makeSign(text, bg, fg){
+  const cv=document.createElement("canvas"); cv.width=320; cv.height=80;
+  const c=cv.getContext("2d");
+  c.fillStyle=bg; c.fillRect(0,0,320,80);
+  c.strokeStyle="rgba(0,0,0,.45)"; c.lineWidth=7; c.strokeRect(4,4,312,72);
+  c.fillStyle=fg; c.font="bold 46px Arial"; c.textAlign="center"; c.textBaseline="middle";
+  c.fillText(text,160,44);
+  const tex=new THREE.CanvasTexture(cv);
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(8,2),
+    new THREE.MeshBasicMaterial({map:tex,side:THREE.DoubleSide}));
+  return m;
 }
-buildCity2(CITY.x, CITY.z);
+// open-front building (3 walls + roof + floor + sign) you can walk into
+function makeBldg(x,z,w,d,h,color,signText,signBg,signFg){
+  const wallMat=new THREE.MeshStandardMaterial({color,roughness:.85});
+  const t=0.5;
+  const seg=(sx,sz,hx,hz,hh,y)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(hx*2,hh,hz*2),wallMat);
+    m.position.set(sx,y+hh/2,sz); m.castShadow=m.receiveShadow=true; staticGroup.add(m);
+    m.updateMatrixWorld(); bulletMeshes.push(m); addBoxCollider(sx,sz,hx,hz); };
+  seg(x, z-d, w, t, h, 0);   // back
+  seg(x-w, z, t, d, h, 0);   // left
+  seg(x+w, z, t, d, h, 0);   // right
+  const roof=new THREE.Mesh(new THREE.BoxGeometry(w*2+1,0.5,d*2+1),
+    new THREE.MeshStandardMaterial({color:0x33383f})); roof.position.set(x,h+0.25,z); roof.castShadow=true; staticGroup.add(roof);
+  const fl=new THREE.Mesh(new THREE.BoxGeometry(w*2,0.2,d*2),wallMat); fl.position.set(x,0.1,z); fl.receiveShadow=true; staticGroup.add(fl);
+  const sign=makeSign(signText,signBg,signFg); sign.position.set(x,h+1.4,z+d+0.05); sign.scale.setScalar(1.15); staticGroup.add(sign);
+  makeFlag(x-w-1,0,z+d,1.1);
+  return {x,z};
+}
+// МАГАЗИН — shop full of loot
+makeBldg(LOC.shop.x,LOC.shop.z, 12,9,6, 0x2f9e5a, "МАГАЗИН", "#ffd54a", "#173d24");
+for(let i=0;i<4;i++) extraChestSpots.push([LOC.shop.x+rand(-9,9), LOC.shop.z+rand(-6,6)]);
+{ // shelves
+  const shelf=new THREE.MeshStandardMaterial({color:0x8a5a2b,roughness:.9});
+  for(let i=0;i<3;i++){ const s=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,5),shelf);
+    s.position.set(LOC.shop.x-6+i*6, 1.2, LOC.shop.z-2); s.castShadow=true; staticGroup.add(s); }
+}
+// ТЦК — official building with a fence
+makeBldg(LOC.tck.x,LOC.tck.z, 13,10,7, 0x6a6f78, "ТЦК", "#28406e", "#ffffff");
+for(let i=0;i<3;i++) extraChestSpots.push([LOC.tck.x+rand(-10,10), LOC.tck.z+rand(-7,7)]);
+{ // fence posts around ТЦК
+  const fm=new THREE.MeshStandardMaterial({color:0x4a4f58});
+  for(let a=0;a<16;a++){ const ang=a/16*Math.PI*2; const px=LOC.tck.x+Math.cos(ang)*22, pz=LOC.tck.z+Math.sin(ang)*22;
+    const post=new THREE.Mesh(new THREE.BoxGeometry(0.3,2.4,0.3),fm); post.position.set(px,1.2,pz); staticGroup.add(post); }
+}
 
 // scatter extra flags across the whole island
 for(let i=0;i<26;i++){
@@ -547,11 +567,22 @@ function structGeom(kind){
   if(kind==="wall") return new THREE.BoxGeometry(GRID, GRID, WALL_T);
   if(kind==="floor") return new THREE.BoxGeometry(GRID, WALL_T, GRID);
   if(kind==="turret") return new THREE.CylinderGeometry(1.0,1.3,2.4,10);
-  if(kind==="ramp"){
-    // sloped box
-    const g=new THREE.BoxGeometry(GRID, WALL_T, GRID*1.42);
-    return g;
+  if(kind==="ladder") return new THREE.BoxGeometry(1.7, GRID, 0.35);  // ghost/base shape
+}
+// Build a climbable ladder (2 rails + rungs) as a group.
+function makeLadderMesh(){
+  const g=new THREE.Group();
+  const mat=new THREE.MeshStandardMaterial({color:0xcaa16a,roughness:.85});
+  for(const sx of [-0.7,0.7]){
+    const rail=new THREE.Mesh(new THREE.BoxGeometry(0.18,GRID,0.18),mat);
+    rail.position.set(sx,0,0); rail.castShadow=true; g.add(rail);
   }
+  const rungs=Math.floor(GRID/0.6);
+  for(let i=0;i<rungs;i++){
+    const rung=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.14,0.14),mat);
+    rung.position.set(0, -GRID/2+0.4+i*0.6, 0); rung.castShadow=true; g.add(rung);
+  }
+  return g;
 }
 function structMat(ghostMode){
   return new THREE.MeshStandardMaterial({
@@ -579,8 +610,8 @@ function placement(){
   if(buildPiece==="turret"){
     return {x:px, y:baseY, z:pz, rot:dir, kind:"turret"};  // sits on the ground, not grid-snapped
   }
-  // ramp
-  return {x:snap(px), y:baseY+GRID/2, z:snap(pz), rot:dir, kind:"ramp"};
+  // ladder (vertical, climbable)
+  return {x:snap(px), y:baseY+GRID/2, z:snap(pz), rot:dir, kind:"ladder"};
 }
 const TURRET_COST=30;
 function pieceCost(kind){ return kind==="turret"?TURRET_COST:10; }
@@ -595,7 +626,6 @@ function updateGhost(){
   }
   ghost.position.set(p.x,p.y,p.z);
   ghost.rotation.set(0,p.rot,0);
-  if(p.kind==="ramp") ghost.rotation.x=-Math.PI/5;
   if(p.kind==="turret") ghost.position.y=p.y+1.2;
   const ok=player.mats>=pieceCost(p.kind);
   ghost.material.color.setHex(ok?0x66ffcc:0xff6666);
@@ -641,9 +671,10 @@ function placeStructure(){
   const cost=pieceCost(p.kind);
   if(player.mats<cost){ toast("Треба "+cost+" 🧱"); return; }
   if(p.kind==="turret"){ placeTurret(p); player.mats-=cost; updateHUD(); return; }
-  const mesh=new THREE.Mesh(structGeom(p.kind), structMat(false));
+  let mesh;
+  if(p.kind==="ladder"){ mesh=makeLadderMesh(); }
+  else { mesh=new THREE.Mesh(structGeom(p.kind), structMat(false)); }
   mesh.position.set(p.x,p.y,p.z); mesh.rotation.set(0,p.rot,0);
-  if(p.kind==="ramp") mesh.rotation.x=-Math.PI/5;
   mesh.castShadow=mesh.receiveShadow=true;
   dynGroup.add(mesh); mesh.updateMatrixWorld();
   const s={mesh, hp:150, maxHp:150, kind:p.kind, ...p};
@@ -655,8 +686,9 @@ function placeStructure(){
     else       s.col={minx:p.x-WALL_T,maxx:p.x+WALL_T,minz:p.z-GRID/2,maxz:p.z+GRID/2,top:p.y+GRID/2};
   } else if(p.kind==="floor"){
     s.floorTop=p.y+WALL_T/2; s.fminx=p.x-GRID/2; s.fmaxx=p.x+GRID/2; s.fminz=p.z-GRID/2; s.fmaxz=p.z+GRID/2;
-  } else if(p.kind==="ramp"){
-    s.ramp={cx:p.x, cz:p.z, rot:p.rot, base:p.y-GRID/2};
+  } else if(p.kind==="ladder"){
+    // climbable region: centre column, from base to top
+    s.ladder={x:p.x, z:p.z, base:p.y-GRID/2, top:p.y+GRID/2};
   }
   structures.push(s);
   player.mats-=cost; updateHUD();
@@ -778,17 +810,17 @@ function makeStorm(){
   const geo=new THREE.CylinderGeometry(1,1,60,64,1,true);
   const mat=new THREE.MeshBasicMaterial({color:0x8b3ff7,transparent:true,opacity:0.22,side:THREE.BackSide,depthWrite:false});
   const mesh=new THREE.Mesh(geo,mat); mesh.position.y=30; dynGroup.add(mesh);
-  return {mesh, cx:0, cz:0, radius:WORLD*0.95, target:WORLD*0.95, phase:0, timer:14, shrinking:false};
+  return {mesh, cx:0, cz:0, radius:WORLD*0.95, target:WORLD*0.95, phase:0, timer:28, shrinking:false};
 }
 function updateStorm(dt){
   const s=storm;
   s.timer-=dt;
   if(s.shrinking){
-    s.radius=Math.max(s.target, s.radius-(s.radius-s.target)*0.5*dt);
-    if(s.radius<=s.target+0.5){ s.radius=s.target; s.shrinking=false; s.timer=Math.max(10,18-s.phase*1.5); warnEl.style.opacity=0; }
+    s.radius=Math.max(s.target, s.radius-(s.radius-s.target)*0.22*dt);  // slower shrink
+    if(s.radius<=s.target+0.5){ s.radius=s.target; s.shrinking=false; s.timer=Math.max(20,34-s.phase*2); warnEl.style.opacity=0; }
   } else if(s.timer<=0 && s.target>30){
     s.phase++; s.shrinking=true;
-    s.target=Math.max(30, s.radius*0.6);
+    s.target=Math.max(30, s.radius*0.68);   // gentler radius step
     const a=rand(0,Math.PI*2), dd=rand(0,s.radius*0.3);
     s.cx=clamp(s.cx+Math.cos(a)*dd, -WORLD+s.target, WORLD-s.target);
     s.cz=clamp(s.cz+Math.sin(a)*dd, -WORLD+s.target, WORLD-s.target);
@@ -829,25 +861,22 @@ function resolveHoriz(px,pz){
 }
 function groundHeightAt(x,z){
   let g=0;
-  // floors
+  // floors give a standable top
   for(const s of structures){
     if(s.kind==="floor" && x>=s.fminx&&x<=s.fmaxx&&z>=s.fminz&&z<=s.fmaxz){
       if(s.floorTop<=player.pos.y+1.2) g=Math.max(g,s.floorTop);
     }
-    if(s.kind==="ramp"){
-      const r=s.ramp;
-      // transform point into ramp local (only rot about Y in 90° steps)
-      const dx=x-r.cx, dz=z-r.cz;
-      const cos=Math.cos(-r.rot), sin=Math.sin(-r.rot);
-      const lx=dx*cos-dz*sin, lz=dx*sin+dz*cos;
-      if(Math.abs(lx)<=GRID/2 && Math.abs(lz)<=GRID*0.72){
-        const prog=clamp((lz+GRID*0.72)/(GRID*1.44),0,1);
-        const h=r.base+prog*GRID;
-        if(h<=player.pos.y+1.4) g=Math.max(g,h);
-      }
-    }
   }
   return g;
+}
+// Nearest ladder the player is currently touching (for climbing), or null.
+function ladderAt(x,z,y){
+  for(const s of structures){
+    if(s.kind!=="ladder") continue;
+    const L=s.ladder;
+    if(Math.hypot(x-L.x, z-L.z)<1.3 && y>=L.base-1 && y<=L.top+0.6) return L;
+  }
+  return null;
 }
 
 // ===================================================================
@@ -856,6 +885,51 @@ function groundHeightAt(x,z){
 const raycaster=new THREE.Raycaster();
 raycaster.camera=camera;   // required if any Sprite is ever raycast
 const tmpV=new THREE.Vector3(), tmpD=new THREE.Vector3();
+
+// ===================================================================
+//  Sound FX (procedural — Web Audio, no external files)
+// ===================================================================
+let audioCtx=null, _noiseBuf=null;
+function initAudio(){
+  if(!audioCtx){ try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; } }
+  if(audioCtx.state==="suspended") audioCtx.resume();
+}
+function getNoise(){
+  if(_noiseBuf) return _noiseBuf;
+  const sr=audioCtx.sampleRate, b=audioCtx.createBuffer(1,Math.floor(sr*0.4),sr), d=b.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+  _noiseBuf=b; return b;
+}
+const SHOT={ pistol:[0.10,1400,0.22], smg:[0.06,1750,0.15], ar:[0.09,1300,0.19],
+  shotgun:[0.22,780,0.34], sniper:[0.30,560,0.42], melee:[0.14,320,0.22], turret:[0.07,1550,0.10] };
+function playShot(type, vol){
+  if(!audioCtx) return;
+  const s=SHOT[type]||SHOT.pistol, t=audioCtx.currentTime;
+  const dur=s[0], freq=s[1], v=(vol!=null?vol:s[2]);
+  // filtered noise crack
+  const src=audioCtx.createBufferSource(); src.buffer=getNoise();
+  const bp=audioCtx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=freq; bp.Q.value=0.8;
+  const g=audioCtx.createGain(); g.gain.setValueAtTime(v,t); g.gain.exponentialRampToValueAtTime(0.0008,t+dur);
+  src.connect(bp); bp.connect(g); g.connect(audioCtx.destination); src.start(t); src.stop(t+dur+0.02);
+  // low thump
+  const o=audioCtx.createOscillator(), og=audioCtx.createGain(); o.type="sine";
+  o.frequency.setValueAtTime(freq*0.18+80,t); o.frequency.exponentialRampToValueAtTime(55,t+dur);
+  og.gain.setValueAtTime(v*0.8,t); og.gain.exponentialRampToValueAtTime(0.0008,t+dur*1.25);
+  o.connect(og); og.connect(audioCtx.destination); o.start(t); o.stop(t+dur*1.3);
+}
+function playReload(){
+  if(!audioCtx) return; const t=audioCtx.currentTime;
+  for(const off of [0,0.13]){ const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.type="square"; o.frequency.value=off?540:340;
+    g.gain.setValueAtTime(0.0001,t+off); g.gain.linearRampToValueAtTime(0.1,t+off+0.01); g.gain.exponentialRampToValueAtTime(0.001,t+off+0.09);
+    o.connect(g); g.connect(audioCtx.destination); o.start(t+off); o.stop(t+off+0.1); }
+}
+function playBlip(freq,v){
+  if(!audioCtx) return; const t=audioCtx.currentTime;
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain(); o.type="triangle"; o.frequency.value=freq;
+  g.gain.setValueAtTime(v||0.08,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.07);
+  o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t+0.08);
+}
 
 function shoot(){
   const w=WEAPONS[player.cur], inv=player.inv[player.cur];
@@ -866,6 +940,7 @@ function shoot(){
   if(now-player.lastShot < w.rof) return;
   if(inv.ammo<=0){ startReload(); return; }
   player.lastShot=now; inv.ammo--;
+  playShot(player.cur);
   // muzzle flash + recoil
   if(muzzle){ muzzle.intensity=3; setTimeout(()=>{if(muzzle)muzzle.intensity=0;},50); }
   if(gunMesh) gunMesh.position.z=-0.78; // kick
@@ -887,6 +962,7 @@ function shoot(){
 function meleeSwing(w, now){
   if(now-player.lastShot < w.rof) return;
   player.lastShot=now;
+  playShot("melee");
   if(gunMesh){ gunMesh.rotation.x=-1.1; }  // swing anim (recovers in update)
   camera.getWorldDirection(tmpD);
   const origin=camera.getWorldPosition(new THREE.Vector3());
@@ -990,6 +1066,7 @@ function updateTurrets(dt){
       if(h.length && h[0].distance<bd-1.5){ continue; } // blocked
       t.cool=0.5;
       fireRay(tip, dir, t.range, 20, true);
+      if(Math.hypot(t.x-player.pos.x,t.z-player.pos.z)<55) playShot("turret", 0.08);
     }
   }
 }
@@ -1022,16 +1099,43 @@ function makeCar(x,z,color){
   g.position.set(x,0,z);
   return {mesh:g, wheels};
 }
+// ТЦК бусік — a boxy white van you can drive
+function makeVan(x,z){
+  const g=new THREE.Group();
+  const white=new THREE.MeshStandardMaterial({color:0xe9ecf0,roughness:.5,metalness:.2});
+  const body=new THREE.Mesh(new THREE.BoxGeometry(2.6,2.2,5.4),white);
+  body.position.y=1.5; body.castShadow=true; g.add(body);
+  const nose=new THREE.Mesh(new THREE.BoxGeometry(2.6,1.3,1.0),white);
+  nose.position.set(0,0.95,3.0); nose.castShadow=true; g.add(nose);
+  const wind=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.9,0.1),
+    new THREE.MeshStandardMaterial({color:0x223047,transparent:true,opacity:.6}));
+  wind.position.set(0,1.7,3.45); g.add(wind);
+  // "ТЦК" sign on the side
+  const s1=makeSign("ТЦК","#28406e","#ffffff"); s1.scale.set(0.42,0.42,0.42);
+  s1.position.set(1.32,1.7,0); s1.rotation.y=Math.PI/2; g.add(s1);
+  const s2=makeSign("ТЦК","#28406e","#ffffff"); s2.scale.set(0.42,0.42,0.42);
+  s2.position.set(-1.32,1.7,0); s2.rotation.y=-Math.PI/2; g.add(s2);
+  const wheels=[]; const wm=new THREE.MeshStandardMaterial({color:0x14161c,roughness:.9});
+  for(const [wx,wz] of [[-1.35,1.8],[1.35,1.8],[-1.35,-1.8],[1.35,-1.8]]){
+    const w=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,0.45,12),wm);
+    w.rotation.z=Math.PI/2; w.position.set(wx,0.7,wz); w.castShadow=true; g.add(w); wheels.push(w);
+  }
+  g.position.set(x,0,z);
+  return {mesh:g, wheels};
+}
 function spawnCars(){
   const colors=[0xd23b3b,0x2f6fd2,0x2fbf5f,0xd2a02f,0x8a2fd2,0x333a48];
-  const spots=[[CITY.x-40,CITY.z],[CITY.x+40,CITY.z-20],[CITY.x,CITY.z+45],
-    [-60,80],[120,-90],[-140,-40],[40,150]];
+  const spots=[[-60,80],[120,-90],[-140,-40],[40,150],[70,20],[-30,-120],[160,60]];
   for(let i=0;i<spots.length;i++){
     const [x,z]=spots[i];
     const c=makeCar(x,z,colors[i%colors.length]);
     dynGroup.add(c.mesh);
     cars.push({mesh:c.mesh, wheels:c.wheels, x, z, heading:rand(0,6.28), speed:0});
   }
+  // the ТЦК бусік, parked next to the ТЦК
+  const v=makeVan(LOC.busik.x, LOC.busik.z);
+  dynGroup.add(v.mesh);
+  cars.push({mesh:v.mesh, wheels:v.wheels, x:LOC.busik.x, z:LOC.busik.z, heading:0, speed:0, van:true});
 }
 function toggleVehicle(){
   if(player.skydiving) return;
@@ -1091,7 +1195,8 @@ function updateVehicle(dt){
 
 function startReload(){
   const w=WEAPONS[player.cur], inv=player.inv[player.cur];
-  if(!inv||player.reloading||inv.ammo>=w.mag||inv.reserve<=0) return;
+  if(!inv||w.melee||player.reloading||inv.ammo>=w.mag||inv.reserve<=0) return;
+  playReload();
   player.reloading=true; player.reloadEnd=performance.now()+w.reload;
 }
 
@@ -1167,6 +1272,7 @@ function showHit(head){
   const h=document.getElementById("hitmark");
   h.style.color=head?"#ffd54a":"#ff5d5d";
   h.style.opacity=1; setTimeout(()=>h.style.opacity=0,90);
+  playBlip(head?1200:900, 0.06);
 }
 function killFeed(who,wpn,victim){
   const f=document.getElementById("killfeed");
@@ -1194,7 +1300,7 @@ addEventListener("keydown",e=>{
   else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
   else if(/^Digit[1-7]$/.test(c)){
     const n=c.slice(5);
-    if(buildMode){ buildPiece = n==="1"?"wall":n==="2"?"ramp":n==="3"?"floor":n==="4"?"turret":buildPiece; buildInvBar(); updateGhost(); }
+    if(buildMode){ buildPiece = n==="1"?"wall":n==="2"?"ladder":n==="3"?"floor":n==="4"?"turret":buildPiece; buildInvBar(); updateGhost(); }
     else { const wname=ALLSEL[parseInt(n)-1]; if(wname && player.inv[wname]){ selectWeapon(wname); } }
   }
 });
@@ -1203,6 +1309,7 @@ addEventListener("keyup",e=>{ keys[e.code]=false; });
 let mouseDown=false;
 renderer.domElement.addEventListener("mousedown",e=>{
   if(!running) return;
+  initAudio();
   if(document.pointerLockElement!==renderer.domElement){ renderer.domElement.requestPointerLock(); return; }
   mouseDown=true;
   if(player.skydiving) return;   // no shooting while parachuting in
@@ -1245,7 +1352,7 @@ function tryOpenChest(){
 function buildInvBar(){
   const bar=document.getElementById("invbar"); bar.innerHTML="";
   if(buildMode){
-    const pieces=[["wall","Стіна","1"],["ramp","Рампа","2"],["floor","Підлога","3"],["turret","Турель 30🧱","4"]];
+    const pieces=[["wall","Стіна","1"],["ladder","Драбина","2"],["floor","Підлога","3"],["turret","Турель 30🧱","4"]];
     for(const [id,label,key] of pieces){
       const d=document.createElement("div");
       d.className="slot"+(buildPiece===id?" active":"");
@@ -1405,9 +1512,14 @@ function update(dt){
   else {
   const sprint = (keys["ShiftLeft"]||keys["ShiftRight"])?1.7:1;
   const speed = 6.8*sprint;
+  // ladder the player is touching right now (before moving)
+  const onLadder = ladderAt(player.pos.x, player.pos.z, player.pos.y);
+  const climbingBelowTop = onLadder && player.pos.y < onLadder.top-0.2;
   let mx=0,mz=0;
   if(keys["KeyW"]||keys["ArrowUp"]) mz-=1; if(keys["KeyS"]||keys["ArrowDown"]) mz+=1;
   if(keys["KeyA"]||keys["ArrowLeft"]) mx-=1; if(keys["KeyD"]||keys["ArrowRight"]) mx+=1;
+  // On a ladder, W/S climb instead of walking (until you reach the top).
+  if(climbingBelowTop) mz=0;
   const yaw=player.yaw;
   // forward/right in world
   let wx=0,wz=0;
@@ -1423,12 +1535,24 @@ function update(dt){
   nx=clamp(nx,-WORLD+2,WORLD-2); nz=clamp(nz,-WORLD+2,WORLD-2);
   player.pos.x=nx; player.pos.z=nz;
 
-  // gravity + ground
-  player.vel.y-=GRAV*dt;
-  player.pos.y+=player.vel.y*dt;
-  const gh=groundHeightAt(player.pos.x,player.pos.z);
-  if(player.pos.y<=gh){ player.pos.y=gh; player.vel.y=0; player.onGround=true; }
-  else player.onGround=false;
+  // ---- Ladder climbing (vertical) ----
+  if(onLadder){
+    const climb=5.5;
+    let vy=0;
+    if(keys["KeyW"]||keys["ArrowUp"]) vy=climb;      // face ladder + W to go up
+    else if(keys["KeyS"]||keys["ArrowDown"]) vy=-climb;
+    player.pos.y=clamp(player.pos.y+vy*dt, onLadder.base, onLadder.top+0.8);
+    player.vel.y=0; player.onGround=true;
+    const gh0=groundHeightAt(player.pos.x,player.pos.z);
+    if(player.pos.y<gh0) player.pos.y=gh0;
+  } else {
+    // gravity + ground
+    player.vel.y-=GRAV*dt;
+    player.pos.y+=player.vel.y*dt;
+    const gh=groundHeightAt(player.pos.x,player.pos.z);
+    if(player.pos.y<=gh){ player.pos.y=gh; player.vel.y=0; player.onGround=true; }
+    else player.onGround=false;
+  }
 
   // camera
   camera.position.set(player.pos.x, player.pos.y+EYE, player.pos.z);
@@ -1571,12 +1695,12 @@ function startGame(){
   player=makePlayer();
   killCount=0; buildMode=false; buildPiece="wall";
 
-  // ---- Deploy: start high in the sky above the city, jump from a helicopter ----
-  const dropX=CITY.x+rand(-30,30), dropZ=CITY.z+rand(-30,30);
+  // ---- Deploy: start high in the sky, jump from a helicopter ----
+  const dropX=LOC.drop.x+rand(-30,30), dropZ=LOC.drop.z+rand(-30,30);
   player.pos.set(dropX,130,dropZ);
   player.vel.set(0,-4,0);
   player.skydiving=true; player.parachute=false;
-  player.yaw=Math.atan2(-(CITY.x-dropX),-(CITY.z-dropZ)); // face city
+  player.yaw=rand(0,Math.PI*2);
   player.pitch=-0.55;                                     // look down
 
   storm=makeStorm();
@@ -1590,7 +1714,7 @@ function startGame(){
   dynGroup.add(heli);
 
   document.getElementById("zoneVal").textContent="1";
-  toast("Стрибок! Керуй WASD, приземлись у місті 🏙️");
+  toast("Стрибок! Керуй WASD 🪂 — шукай Магазин і ТЦК");
   state="play"; running=true; lastTime=performance.now();
   renderer.domElement.requestPointerLock();
   requestAnimationFrame(loop);
@@ -1615,8 +1739,8 @@ function endGame(victory){
   setTimeout(()=>end.classList.remove("hidden"),600);
 }
 
-document.getElementById("startBtn").addEventListener("click",startGame);
-document.getElementById("againBtn").addEventListener("click",startGame);
+document.getElementById("startBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
+document.getElementById("againBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
 
 // idle render behind menu
 renderer.render(scene,camera);
