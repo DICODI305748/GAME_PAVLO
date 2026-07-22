@@ -140,14 +140,21 @@
 
 <div id="loading">ЗАВАНТАЖЕННЯ 3D РУШІЯ…</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Local Three.js (works fully offline). CDN kept only as a fallback. -->
+<script src="three.min.js"></script>
+<script>
+if (typeof THREE === "undefined") {
+  // fallback to CDN if the local file is missing
+  document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>');
+}
+</script>
 <script>
 (() => {
 "use strict";
 
 if (typeof THREE === "undefined") {
   document.getElementById("loading").innerHTML =
-    '<div class="err">Не вдалося завантажити 3D-рушій (Three.js) із мережі.<br>Перевір інтернет-з’єднання та онови сторінку.</div>';
+    '<div class="err">Не вдалося завантажити 3D-рушій (Three.js).<br>Переконайся, що файл <b>three.min.js</b> лежить поруч із index.html.</div>';
   return;
 }
 document.getElementById("loading").style.display = "none";
@@ -385,7 +392,8 @@ function buildViewmodel(){
   accent.position.set(0,w.size[1]*0.5,0.1); gunMesh.add(accent);
   muzzle=new THREE.PointLight(0xffdd88,0,8);
   muzzle.position.set(0,0,-w.size[2]*0.9); gunMesh.add(muzzle);
-  gunMesh.position.set(0.32,-0.32,-0.7);
+  gunMesh.scale.setScalar(0.8);
+  gunMesh.position.set(0.28,-0.26,-0.95);
   camera.add(gunMesh);
 }
 
@@ -472,9 +480,13 @@ function placeStructure(){
 // ===================================================================
 function makeBotMesh(color){
   const g=new THREE.Group();
-  const body=new THREE.Mesh(new THREE.CapsuleGeometry(0.45,1.0,4,8),
-    new THREE.MeshStandardMaterial({color,roughness:.7}));
+  const bodyMat=new THREE.MeshStandardMaterial({color,roughness:.7});
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.5,1.5,10),bodyMat);
   body.position.y=1.0; body.castShadow=true; g.add(body);
+  const shoulders=new THREE.Mesh(new THREE.SphereGeometry(0.45,10,8),bodyMat);
+  shoulders.position.y=1.72; shoulders.castShadow=true; g.add(shoulders);
+  const hips=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8),bodyMat);
+  hips.position.y=0.3; hips.castShadow=true; g.add(hips);
   const head=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,10),
     new THREE.MeshStandardMaterial({color:0xf1c9a5,roughness:.8}));
   head.position.y=1.95; head.castShadow=true; g.add(head);
@@ -664,7 +676,7 @@ function shoot(){
   player.lastShot=now; inv.ammo--;
   // muzzle flash + recoil
   if(muzzle){ muzzle.intensity=3; setTimeout(()=>{if(muzzle)muzzle.intensity=0;},50); }
-  if(gunMesh) gunMesh.position.z=-0.55; // kick
+  if(gunMesh) gunMesh.position.z=-0.78; // kick
   player.pitch=clamp(player.pitch+rand(0.004,0.012),-1.4,1.4);
 
   camera.getWorldDirection(tmpD);
@@ -966,10 +978,10 @@ function update(dt){
   camera.position.set(player.pos.x, player.pos.y+EYE, player.pos.z);
   camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
   // gun recover
-  if(gunMesh){ gunMesh.position.z += (-0.7-gunMesh.position.z)*Math.min(1,dt*12);
+  if(gunMesh){ gunMesh.position.z += (-0.95-gunMesh.position.z)*Math.min(1,dt*12);
     // sway
-    gunMesh.position.x=0.32+Math.sin(performance.now()*0.003)*(mx||mz?0.01:0.003);
-    gunMesh.position.y=-0.32+Math.cos(performance.now()*0.006)*(mx||mz?0.01:0.003);
+    gunMesh.position.x=0.28+Math.sin(performance.now()*0.003)*(mx||mz?0.01:0.003);
+    gunMesh.position.y=-0.26+Math.cos(performance.now()*0.006)*(mx||mz?0.01:0.003);
   }
   // FOV zoom for sniper aim (hold RMB? keep simple: scope weapon narrows fov while firing region)
   const wantFov = (WEAPONS[player.cur].scope && mouseDown)?45:75;
