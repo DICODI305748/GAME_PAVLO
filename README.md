@@ -1,44 +1,60 @@
-# 🌩️ Storm Royale
+# 🌩️ Storm Royale 3D
 
-A fast, single-file **Fortnite-style battle royale** game that runs entirely in your browser — no build step, no dependencies. Drop onto the island with 99 rivals, loot chests, build walls, and stay ahead of the shrinking Storm to claim the **Victory Crown**.
+A full **3D first-person battle royale** in a single HTML file, built with [Three.js](https://threejs.org). Real Fortnite-style building (proper walls, ramps and floors — not tiny cubes), five distinct weapons, a shrinking storm, loot chests and 49 AI opponents. Drop in, loot, build, and be the last one standing.
 
 ## ▶️ Play
 
-Just open `index.html` in any modern browser. That's it.
+Open `index.html` in any modern browser (needs internet the first time — Three.js loads from a CDN).
 
-Or serve it locally:
+Local server:
 
 ```bash
 python3 -m http.server 8000
-# then visit http://localhost:8000
+# visit http://localhost:8000
 ```
+
+Click the canvas to lock the mouse. Press **Esc** to release it.
 
 ## 🎮 Controls
 
 | Input | Action |
 |-------|--------|
-| **WASD** / Arrow keys | Move |
-| **Mouse** | Aim — click or hold to fire |
-| **SPACE** | Build a wall for cover (costs 10 🧱) |
+| **WASD** | Move · **Shift** sprint · **Space** jump |
+| **Mouse** | Look · **LMB** shoot / place build piece |
+| **B** | Toggle **Combat / Build** mode |
+| **1–5** | Combat: select weapon · Build: 1 wall · 2 ramp · 3 floor |
+| **Mouse wheel** | Cycle weapons |
 | **R** | Reload |
-| **1** / **2** | Switch weapons |
+| **E** | Open a chest (when nearby) |
 
-Touch: drag on the canvas to aim and shoot (mobile-friendly).
+## 🔫 Weapons
 
-## ✨ Features
+Five weapons, each with its own damage, fire rate, spread, magazine and range:
 
-- **The Storm** — a purple zone that periodically shrinks and damages anyone caught outside. Watch the dashed ring to see where it's heading.
-- **Loot chests** — walk into golden chests to spray out materials, ammo, shields, heals, and even a second weapon.
-- **Building** — drop brick walls to block bullets and body-block enemies, just like the real thing.
-- **Health + Shields** — a two-layer survivability system; shields absorb damage first.
-- **Two weapons** — an Assault Rifle to start, plus a Shotgun you can loot.
-- **99 AI rivals** — they wander, hunt, strafe, flee the Storm, and drop loot when eliminated.
-- **Live HUD + minimap** — track players alive, eliminations, storm phase, and everyone's position.
+- **Pistol** — reliable starter, semi-auto
+- **SMG** — fast full-auto, high spread
+- **Assault Rifle** — balanced full-auto workhorse
+- **Shotgun** — 9 pellets, devastating up close
+- **Sniper** — one-shot potential, scopes in when you aim
+
+Headshots deal **double damage**. You start with a Pistol + AR; loot the rest from chests and eliminated rivals.
+
+## 🧱 Real building
+
+Switch to Build mode (**B**) and place **full-size walls, climbable ramps, and floors** that snap to a grid, block bullets and body-block enemies — exactly the cover-building loop the genre is known for. Each piece costs 10 materials; gather more from chests and kills.
+
+## 🌪️ Battle royale systems
+
+- **Shrinking Storm** — a purple zone that closes in over multiple phases and damages anyone caught outside.
+- **50-player lobby** — 49 AI rivals that wander, hunt, strafe, flee the storm, and drop loot.
+- **Health + Shields** — shields absorb damage first; heal and shield from loot.
+- **Loot chests** near houses and scattered across the map.
+- **HUD + minimap** — players alive, eliminations, storm phase, killfeed, and a live radar.
 
 ## 🏆 How to win
 
-Be the **last one standing**. Eliminate enemies, avoid the Storm, keep your health and shields topped up, and outlast all 99 opponents for **#1 Victory Royale**.
+Outlast all 49 opponents and the Storm for **#1 Victory Royale**.
 
 ---
 
-*Storm Royale is an original fan-made game inspired by the battle-royale genre. It is not affiliated with, endorsed by, or connected to Epic Games or Fortnite.*
+*Storm Royale 3D is an original, fan-made game inspired by the battle-royale genre. It is not affiliated with, endorsed by, or connected to Epic Games or Fortnite.*
