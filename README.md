@@ -1,6 +1,16 @@
-# 🌩️ Storm Royale 3D
+# 🧟 Zombie Survival 3D
 
-A full **3D first-person battle royale** in a single HTML file, built with [Three.js](https://threejs.org). Real Fortnite-style building (walls, climbable ladders and floors — not tiny cubes), seven weapons & tools, drivable vehicles, placeable turrets, procedural sound, a shrinking storm, loot chests and 100 AI opponents. Drop in, loot, build, and be the last one standing.
+A **3D first-person zombie survival** game in a single HTML file, built with [Three.js](https://threejs.org). Explore a **procedurally generated** world (forests, mountains, a shop, a ТЦК and randomized landmarks), gather **wood 🪵, stone 🪨 and metal 🔩**, and build a fortified base with Fortnite-style pieces. **Every 5 minutes night falls** and a horde of zombies swarms in from the edges — and they **smash through your walls**. Each night there are more of them and they hit harder. Upgrade your walls **wood → stone → metal**, plant **torches and spikes**, mount **turrets**, and survive as many nights as you can.
+
+## 🌙 Day / night survival loop
+
+- **Day (5 min the first time, then shorter):** loot chests, chop trees for wood, mine rocks for stone, and build/upgrade your base. No zombies.
+- **Night:** a wave of zombies spawns from the map edges and marches on you, attacking any wall in the way until it breaks. Survive the night and dawn burns away the stragglers.
+- **Each night** the wave is bigger, tougher and faster. How many nights can you last?
+
+## 🧱 Base building & upgrades
+
+Build mode (**B**) pieces, all on a Fortnite-style grid: **1** wall · **2** door · **3** window · **4** floor · **5** ladder · **6** turret · **7** torch 🔥 (light) · **8** spikes 🔩 (trap that shreds zombies). Aim at a piece and press **U** to upgrade it a tier — **wood → stone → metal** — spending stone then metal for far more health.
 
 ## ▶️ Play
 

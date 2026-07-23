@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Storm Royale 3D — Battle Royale</title>
+<title>Zombie Survival 3D</title>
 <style>
   :root{ --purple:#8b3ff7; --cyan:#22e3ff; --gold:#ffd54a; }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -86,11 +86,11 @@
   <div id="hitmark">✕</div>
   <div id="dmgvig"></div>
   <div class="topbar">
-    <div><div class="val" id="aliveVal">50</div><div class="lbl">Живих</div></div>
-    <div><div class="val" id="killVal">0</div><div class="lbl">Вбивств</div></div>
-    <div><div class="val" id="zoneVal">1</div><div class="lbl">Фаза шторму</div></div>
+    <div><div class="val" id="phaseVal">☀ 5:00</div><div class="lbl" id="phaseLbl">До ночі</div></div>
+    <div><div class="val" id="killVal">0</div><div class="lbl">Вбито зомбі</div></div>
+    <div><div class="val" id="zoneVal">1</div><div class="lbl">Ніч</div></div>
   </div>
-  <div class="warn" id="warn">⚡ Шторм насувається ⚡</div>
+  <div class="warn" id="warn">🌙 НІЧ — зомбі йдуть! 🧟</div>
   <div class="toast" id="toast"></div>
   <div id="killfeed"></div>
   <canvas id="mini" width="150" height="150"></canvas>
@@ -103,7 +103,7 @@
   <div id="rightHud">
     <div id="wpnName">Пістолет</div>
     <div id="ammo">12<small> / 12</small></div>
-    <div id="mats">🪵 <span id="matVal">50</span>&nbsp;&nbsp;🪨 <span id="stoneVal">0</span></div>
+    <div id="mats">🪵 <span id="matVal">50</span>&nbsp;🪨 <span id="stoneVal">0</span>&nbsp;🔩 <span id="metalVal">0</span></div>
     <div id="modeTag" class="mode-combat">⚔ Бій</div>
   </div>
 
@@ -112,25 +112,24 @@
 
 <!-- Start -->
 <div class="overlay" id="startScreen">
-  <h1>Storm Royale 3D</h1>
-  <div class="tag">Last One Standing</div>
+  <h1>Zombie Survival 3D</h1>
+  <div class="tag">Survive the Night</div>
   <div class="card">
-    <h2>Повноцінний 3D батл рояль</h2>
-    <p>Ти висадився на острові разом із 49 суперниками. Збирай спорядження, будуй <b style="color:var(--cyan)">справжні стіни, рампи й підлогу</b> для укриття, підбирай різну зброю та вижий у зоні, яку стискає смертельний <b style="color:var(--purple)">Шторм</b>. Стань <b style="color:var(--gold)">останнім, хто вижив</b>.</p>
+    <h2>Виживи серед зомбі 🧟</h2>
+    <p>Удень збирай ресурси (🪵 дерево, 🪨 камінь, 🔩 метал) і будуй <b style="color:var(--cyan)">укріплену базу</b> зі стінами, дверима, факелами й шипами. Кожні <b style="color:var(--gold)">5 хвилин настає ніч</b> — з країв карти суне орда <b style="color:#7bd45a">зомбі</b>, і вони <b>ламають стіни</b>! Щоночі їх більше й вони сильніші. Апгрейди стіни до <b>каменю → металу</b>, щоб вистояти.</p>
     <div class="keys">
       <b>WASD</b><span>Рух · <b>Shift</b> біг · <b>Space</b> стрибок</span>
       <b>Миша</b><span>Огляд · ЛКМ — стріляти / будувати</span>
       <b>B</b><span>Перемкнути режим Бій / Будівництво</span>
       <b>1–8</b><span>Бій: 1-5 зброя, 6 кірка, 7 сокира, 8 базука 🚀</span>
-      <b>Буд.</b><span>1 стіна · 2 двері · 3 вікно · 4 підлога · 5 драбина · 6 турель</span>
-      <b>U</b><span>Апгрейд дерев'яної деталі каменем 🪨 (міцніше)</span>
-      <b>🚁</b><span>Збий <b>ворожий вертоліт</b> у небі — з нього випаде <b>базука</b>!</span>
-      <b>F</b><span>Сісти / вийти з <b>машини</b> 🚗 · <b>R</b> перезарядка</span>
+      <b>Буд.</b><span>1 стіна · 2 двері · 3 вікно · 4 підлога · 5 драбина · 6 турель · 7 факел 🔥 · 8 шипи 🔩</span>
+      <b>U</b><span>Апгрейд: дерево→камінь (🪨), камінь→метал (🔩)</span>
       <b>E</b><span>Скриня · сокирою бий дерева (🪵), кіркою — каміння (🪨)</span>
+      <b>F</b><span>Машина 🚗 · <b>R</b> перезарядка · збий вертоліт → базука 🚀</span>
     </div>
     <p style="margin-top:12px;color:#9fb0e0;font-size:13px">Натисни кнопку, потім клікни по екрану щоб захопити мишу. <b>Esc</b> — відпустити.</p>
   </div>
-  <button class="play" id="startBtn">Висадитись</button>
+  <button class="play" id="startBtn">Почати виживання</button>
 </div>
 
 <!-- End -->
@@ -363,10 +362,10 @@ function makeHouse(cx, cz, w, d){
   return {cx,cz};
 }
 const houses=[];
-for(let i=0;i<7;i++){
-  const x=rand(-WORLD+50,WORLD-50), z=rand(-WORLD+50,WORLD-50);
+for(let i=0;i<9;i++){
+  const x=wr(-WORLD+50,WORLD-50), z=wr(-WORLD+50,WORLD-50);
   if(Math.hypot(x,z)<40){i--;continue;}
-  houses.push(makeHouse(x,z, rand(6,9), rand(6,9)));
+  houses.push(makeHouse(x,z, wr(6,9), wr(6,9)));
 }
 
 // ---- Ukraine flags (waving, everywhere) ----
@@ -411,13 +410,15 @@ function makeMountain(x,z,r,h){
 {
   const ring=[[-1,-1],[0,-1],[1,-1],[-1,1],[0,1],[1,1],[-1,0],[1,0]];
   for(const [sx,sz] of ring){
-    const x=sx*(WORLD-40)+rand(-25,25), z=sz*(WORLD-40)+rand(-25,25);
-    makeMountain(x,z, rand(30,55), rand(45,95));
+    const x=sx*(WORLD-40)+wr(-25,25), z=sz*(WORLD-40)+wr(-25,25);
+    makeMountain(x,z, wr(30,55), wr(45,95));
   }
 }
 
-// ---- Named locations (shop, TCK) + a ТЦК van elsewhere ----
-const LOC={ shop:{x:-95,z:70}, tck:{x:120,z:-85}, busik:{x:118,z:-72}, drop:{x:0,z:0} };
+// ---- Named locations (shop, TCK) — procedurally placed from the seed ----
+function randSpot(minR){ let x,z,tries=0; do{ x=wr(-WORLD+60,WORLD-60); z=wr(-WORLD+60,WORLD-60); tries++; } while(Math.hypot(x,z)<minR && tries<50); return {x,z}; }
+const _shop=randSpot(45), _tck=randSpot(60);
+const LOC={ shop:_shop, tck:_tck, busik:{x:_tck.x+12, z:_tck.z+14}, drop:{x:0,z:0} };
 
 // text sign board (canvas texture)
 function makeSign(text, bg, fg){
@@ -655,6 +656,8 @@ let particles = [];
 let turrets = [];      // placed auto-turrets
 let cars = [];         // drivable vehicles
 let rockets = [];      // bazooka rockets in flight
+let torches = [];      // placed torches (light + flicker)
+let spikeTraps = [];   // placed spike traps
 let enemyHelis = [];   // shootable helicopters patrolling the sky
 
 let player, storm, state="menu", running=false, lastTime=0;
@@ -666,7 +669,7 @@ let ghost=null;
 
 function clearGroup(){
   while(dynGroup.children.length) dynGroup.remove(dynGroup.children[0]);
-  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[];
+  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[]; torches=[]; spikeTraps=[];
 }
 
 // ===================================================================
@@ -678,7 +681,7 @@ function makePlayer(){
     vel:new THREE.Vector3(0,0,0),
     yaw:0, pitch:0, onGround:true,
     hp:100, maxHp:100, shield:0, maxShield:100,
-    mats:50, stone:0, alive:true,   // mats = wood 🪵, stone 🪨 upgrades builds
+    mats:50, stone:0, metal:0, alive:true,   // wood 🪵 build · stone 🪨 & metal 🔩 upgrade
     inv:{pistol:{ammo:12,reserve:60}, ar:{ammo:30,reserve:90},
          pickaxe:{melee:true}, axe:{melee:true}}, // start loadout + tools always owned
     vehicle:null,
@@ -762,21 +765,61 @@ function stoneTexture(){
   }
   const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.RepeatWrapping; return t;
 }
+function metalTexture(){
+  const S=128, cv=document.createElement("canvas"); cv.width=cv.height=S; const c=cv.getContext("2d");
+  c.fillStyle="#8b939c"; c.fillRect(0,0,S,S);
+  for(let i=0;i<2;i++)for(let j=0;j<2;j++){ const px=i*S/2, py=j*S/2, s=S/2;
+    const g=0.85+Math.random()*0.2, v=Math.floor(150*g);
+    c.fillStyle=`rgb(${v},${v+6},${v+14})`; c.fillRect(px+2,py+2,s-4,s-4);
+    c.strokeStyle="rgba(40,46,54,0.9)"; c.lineWidth=3; c.strokeRect(px+2,py+2,s-4,s-4);
+    // rivets
+    c.fillStyle="#40464e";
+    for(const [rx,ry] of [[6,6],[s-6,6],[6,s-6],[s-6,s-6]]){ c.beginPath(); c.arc(px+rx,py+ry,2.2,0,7); c.fill(); }
+  }
+  const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.RepeatWrapping; return t;
+}
 const TEX_WOOD=woodTexture("#a06a38","#5c3a1c");  TEX_WOOD.repeat.set(2,2);
 const TEX_FLOOR=woodTexture("#8a5f34","#4c3016");  TEX_FLOOR.repeat.set(3,3);
 const TEX_DOOR=woodTexture("#7a5228","#3c2610");   TEX_DOOR.repeat.set(1,2);
 const TEX_STONE=stoneTexture();                    TEX_STONE.repeat.set(2,2);
+const TEX_METAL=metalTexture();                    TEX_METAL.repeat.set(2,2);
 const MAT_WOOD =new THREE.MeshStandardMaterial({map:TEX_WOOD, roughness:.9});
 const MAT_FLOOR=new THREE.MeshStandardMaterial({map:TEX_FLOOR,roughness:.9});
 const MAT_DOOR =new THREE.MeshStandardMaterial({map:TEX_DOOR, roughness:.85});
 const MAT_STONE=new THREE.MeshStandardMaterial({map:TEX_STONE,roughness:1, color:0xdfe1e6});
+const MAT_METAL=new THREE.MeshStandardMaterial({map:TEX_METAL,roughness:.5,metalness:.85, color:0xcfd6dd});
 const MAT_GLASS=new THREE.MeshStandardMaterial({color:0x9fd8ff,transparent:true,opacity:.35,roughness:.1,metalness:.2});
 
 function structGeom(kind){
   if(kind==="turret") return new THREE.CylinderGeometry(1.0,1.3,2.4,10);
+  if(kind==="torch")  return new THREE.CylinderGeometry(0.12,0.12,2.4,6);
+  if(kind==="spikes") return new THREE.BoxGeometry(GRID*0.9, 1.4, GRID*0.9);
   if(kind==="ladder")return new THREE.BoxGeometry(1.7, GRID, 0.35);
   if(kind==="floor") return new THREE.BoxGeometry(GRID, WALL_T, GRID);
   return new THREE.BoxGeometry(GRID, GRID, WALL_T);   // wall/door/window ghost outline
+}
+// ---- Torch (light) & Spikes (trap) props ----
+function makeTorch(x,z){
+  const g=new THREE.Group();
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.12,2.4,6),MAT_WOOD.clone());
+  pole.position.y=1.2; pole.castShadow=true; g.add(pole);
+  const flame=new THREE.Mesh(new THREE.ConeGeometry(0.35,0.9,7),
+    new THREE.MeshBasicMaterial({color:0xffa22a}));
+  flame.position.y=2.6; g.add(flame);
+  const light=new THREE.PointLight(0xffa030, 1.4, 26, 2); light.position.y=2.6; g.add(light);
+  g.position.set(x,0,z); g.userData={flame,light};
+  return g;
+}
+function makeSpikes(x,z){
+  const g=new THREE.Group();
+  const base=new THREE.Mesh(new THREE.BoxGeometry(GRID*0.9,0.2,GRID*0.9),MAT_WOOD.clone());
+  base.position.y=0.1; base.receiveShadow=true; g.add(base);
+  const sm=new THREE.MeshStandardMaterial({color:0xb8bcc4,roughness:.5,metalness:.7,flatShading:true});
+  for(let i=0;i<9;i++){ const sp=new THREE.Mesh(new THREE.ConeGeometry(0.28,1.5,5),sm);
+    sp.position.set(-2+ (i%3)*2 + wr(-0.4,0.4), 0.85, -2+Math.floor(i/3)*2 + wr(-0.4,0.4));
+    sp.castShadow=true; g.add(sp); }
+  g.position.set(x,0,z);
+  return g;
 }
 // Build the real textured mesh/group for a build piece (unrotated: spans X, thin Z).
 function makePieceMesh(kind){
@@ -817,11 +860,13 @@ function makePieceMesh(kind){
     g.userData.upgradeMeshes=[sill,hdr,g.children[2],g.children[3],cross]; return g;
   }
 }
-// Swap a placed structure's wooden meshes to stone (upgrade).
-function upgradeToStone(s){
-  const swap=(o)=>{ if(o.isMesh && o.material!==MAT_GLASS && o.material.map!==TEX_STONE) o.material=MAT_STONE.clone(); };
-  s.mesh.traverse(o=>{ if(o.isMesh && o.material && o.material!==MAT_GLASS) o.material=MAT_STONE.clone(); });
-  s.upgraded=true; s.hp=s.maxHp=420;
+// Tiered upgrade: wood -> stone -> metal. Swaps materials + boosts HP.
+function upgradeTier(s){
+  const toStone = (s.tier||"wood")==="wood";
+  const mat = toStone?MAT_STONE:MAT_METAL;
+  s.mesh.traverse(o=>{ if(o.isMesh && o.material && o.material!==MAT_GLASS) o.material=mat.clone(); });
+  s.tier = toStone?"stone":"metal";
+  s.hp = s.maxHp = toStone?420:900;
 }
 // Build a climbable ladder (2 rails + rungs) as a group.
 function makeLadderMesh(){
@@ -861,8 +906,8 @@ function placement(){
     // the tile directly in front of you
     return {x:homeX+ex*GRID, y:baseY, z:homeZ+ez*GRID, rot:0, kind:"floor"};
   }
-  if(buildPiece==="turret"){
-    return {x:player.pos.x+fx*GRID*0.9, y:baseY, z:player.pos.z+fz*GRID*0.9, rot:0, kind:"turret"};
+  if(buildPiece==="turret"||buildPiece==="torch"||buildPiece==="spikes"){
+    return {x:player.pos.x+fx*GRID*0.9, y:baseY, z:player.pos.z+fz*GRID*0.9, rot:0, kind:buildPiece};
   }
   // wall / door / window / ladder: sit on the faced edge of the current tile
   let x,z,rot;
@@ -871,9 +916,9 @@ function placement(){
   const kind = buildPiece;
   return {x, y:baseY+GRID/2, z, rot, kind};
 }
-const TURRET_COST=30;
-function pieceCost(kind){ return kind==="turret"?TURRET_COST:10; }   // all in wood 🪵
-const UPGRADE_COST=20;                                               // stone 🪨 to upgrade
+const TURRET_COST=30, TORCH_COST=5, SPIKE_COST=15;
+function pieceCost(kind){ return kind==="turret"?TURRET_COST : kind==="torch"?TORCH_COST : kind==="spikes"?SPIKE_COST : 10; }
+const UPGRADE_COST=20;                                               // stone/metal to upgrade
 
 function updateGhost(){
   if(!buildMode){ if(ghost){dynGroup.remove(ghost);ghost=null;} return; }
@@ -930,12 +975,22 @@ function placeStructure(){
   const cost=pieceCost(p.kind);
   if(player.mats<cost){ toast("Треба "+cost+" 🪵 дерева"); return; }
   if(p.kind==="turret"){ placeTurret(p); player.mats-=cost; updateHUD(); return; }
+  if(p.kind==="torch"){
+    const m=makeTorch(p.x,p.z); dynGroup.add(m);
+    torches.push({mesh:m, flame:m.userData.flame, light:m.userData.light, phase:rand(0,6.28)});
+    player.mats-=cost; playBlip(300,0.05); updateHUD(); toast("Факел 🔥"); return;
+  }
+  if(p.kind==="spikes"){
+    const m=makeSpikes(p.x,p.z); dynGroup.add(m);
+    spikeTraps.push({mesh:m, x:p.x, z:p.z, r:GRID*0.5});
+    player.mats-=cost; playBlip(260,0.05); updateHUD(); toast("Шипи 🔩"); return;
+  }
   let mesh;
   if(p.kind==="ladder") mesh=makeLadderMesh();
   else mesh=makePieceMesh(p.kind);          // textured wall / door / window / floor
   mesh.position.set(p.x,p.y,p.z); mesh.rotation.set(0,p.rot,0);
   dynGroup.add(mesh); mesh.updateMatrixWorld();
-  const s={mesh, hp:150, maxHp:150, kind:p.kind, wood:true, upgraded:false, ...p};
+  const s={mesh, hp:150, maxHp:150, kind:p.kind, tier:"wood", ...p};
   const alongX = Math.abs(Math.sin(p.rot))<0.5;   // unrotated piece spans X, thin in Z
   const HT=WALL_T/2;                               // collider matches the wall exactly: GRID wide × WALL_T thick
   const base=p.y-GRID/2, top=p.y+GRID/2;           // vertical extent (height-aware collision)
@@ -974,12 +1029,20 @@ function upgradeAimed(){
   let o=hits[0].object, st=null;
   while(o){ st=structures.find(s=>s.mesh===o); if(st)break; o=o.parent; }
   if(!st){ toast("Наведись на споруду"); return; }
-  if(st.kind==="turret"||st.kind==="ladder"){ toast("Це не можна апгрейдити"); return; }
-  if(st.upgraded){ toast("Вже кам'яна"); return; }
-  if(player.stone<UPGRADE_COST){ toast("Треба "+UPGRADE_COST+" 🪨 каменю"); return; }
-  player.stone-=UPGRADE_COST; upgradeToStone(st);
-  burst(st.mesh.position.x,st.mesh.position.y,st.mesh.position.z,0xd8dade,14);
-  playBlip(520,0.08); toast("Апгрейд до каменю! 🪨 міцніше"); updateHUD();
+  if(st.kind==="turret"||st.kind==="ladder"||st.kind==="torch"||st.kind==="spikes"){ toast("Це не апгрейдиться"); return; }
+  const tier=st.tier||"wood";
+  if(tier==="metal"){ toast("Вже метал 🔩 (макс)"); return; }
+  if(tier==="wood"){
+    if(player.stone<UPGRADE_COST){ toast("Треба "+UPGRADE_COST+" 🪨 каменю"); return; }
+    player.stone-=UPGRADE_COST; upgradeTier(st);
+    burst(st.mesh.position.x,st.mesh.position.y,st.mesh.position.z,0xd8dade,14);
+    playBlip(520,0.08); toast("Дерево → Камінь 🪨"); updateHUD();
+  } else { // stone -> metal
+    if(player.metal<UPGRADE_COST){ toast("Треба "+UPGRADE_COST+" 🔩 металу"); return; }
+    player.metal-=UPGRADE_COST; upgradeTier(st);
+    burst(st.mesh.position.x,st.mesh.position.y,st.mesh.position.z,0xcfd6dd,16);
+    playBlip(660,0.09); toast("Камінь → Метал 🔩 найміцніше!"); updateHUD();
+  }
 }
 
 // ===================================================================
@@ -987,25 +1050,28 @@ function upgradeAimed(){
 // ===================================================================
 function makeBotMesh(color){
   const g=new THREE.Group();
-  const bodyMat=new THREE.MeshStandardMaterial({color,roughness:.7});
-  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.5,1.5,10),bodyMat);
+  const skin=color||0x5a8a3a;
+  const bodyMat=new THREE.MeshStandardMaterial({color:skin,roughness:.85});
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.48,1.5,9),bodyMat);
   body.position.y=1.0; body.castShadow=true; g.add(body);
-  const shoulders=new THREE.Mesh(new THREE.SphereGeometry(0.45,10,8),bodyMat);
-  shoulders.position.y=1.72; shoulders.castShadow=true; g.add(shoulders);
-  const hips=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8),bodyMat);
+  const hips=new THREE.Mesh(new THREE.SphereGeometry(0.48,9,7),bodyMat);
   hips.position.y=0.3; hips.castShadow=true; g.add(hips);
-  const head=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,10),
-    new THREE.MeshStandardMaterial({color:0xf1c9a5,roughness:.8}));
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.33,9,9),
+    new THREE.MeshStandardMaterial({color:0x7ba84a,roughness:.9}));
   head.position.y=1.95; head.castShadow=true; g.add(head);
-  const pack=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.7,0.3),
-    new THREE.MeshStandardMaterial({color:0x333947}));
-  pack.position.set(0,1.15,0.35); g.add(pack);
+  // glowing zombie eyes
+  const eyeMat=new THREE.MeshBasicMaterial({color:0xff3020});
+  for(const sx of [-0.12,0.12]){ const e=new THREE.Mesh(new THREE.SphereGeometry(0.06,6,6),eyeMat); e.position.set(sx,1.98,0.28); g.add(e); }
+  // outstretched arms
+  const armMat=new THREE.MeshStandardMaterial({color:skin,roughness:.85});
+  for(const sx of [-0.55,0.55]){ const a=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,1.1,6),armMat);
+    a.position.set(sx,1.3,0.45); a.rotation.x=-1.3; a.castShadow=true; g.add(a); }
   // health bar sprite
   const cv=document.createElement("canvas"); cv.width=64;cv.height=8;
   const tex=new THREE.CanvasTexture(cv);
   const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,depthTest:false}));
   spr.scale.set(1.6,0.2,1); spr.position.y=2.6; g.add(spr);
-  spr.raycast=function(){};   // never intercept bullets (and avoids Sprite raycast needing a camera)
+  spr.raycast=function(){};
   g.userData.hbCanvas=cv; g.userData.hbTex=tex; g.userData.hbSpr=spr;
   return g;
 }
@@ -1019,24 +1085,27 @@ function drawHB(bot){
   bot.mesh.userData.hbTex.needsUpdate=true;
 }
 
-function spawnBots(){
-  const colors=[0x5aa0ff,0xff6b9d,0x9d7dff,0x5ee0b0,0xffb15a,0xff5d5d];
-  for(let i=0;i<BOT_COUNT;i++){
-    let x,z;
-    do{ x=rand(-WORLD+20,WORLD-20); z=rand(-WORLD+20,WORLD-20);}while(Math.hypot(x,z)<45);
-    const mesh=makeBotMesh(colors[i%colors.length]);
+// Spawn a night wave of zombies from the map edges. Stats scale with night number.
+function spawnWave(night){
+  const count = Math.min(90, 8 + night*6);
+  const tints=[0x4f7a34,0x5a8a3a,0x6a9440,0x456b2e];
+  const hpBase = 45 + night*22;
+  const dmgBase = 7 + night*2.2;
+  const spd = 2.4 + Math.min(3.2, night*0.28);
+  for(let i=0;i<count;i++){
+    const ang=rand(0,Math.PI*2), r=WORLD-8;
+    const x=clamp(Math.cos(ang)*r,-WORLD+6,WORLD-6), z=clamp(Math.sin(ang)*r,-WORLD+6,WORLD-6);
+    const mesh=makeBotMesh(tints[i%tints.length]);
     mesh.position.set(x,0,z); dynGroup.add(mesh);
-    const wkeys=WORDER.slice(0, 2+Math.floor(rand(0,4)));
-    const bot={
-      mesh, x, z, y:0, vy:0, onGround:true,
-      hp:55+rand(0,35), maxHp:90, alive:true,          // weaker bots
-      speed:rand(3.6,5.6), state:"wander", wt:0, wx:x, wz:z,
-      weapon: WEAPONS[wkeys[Math.floor(rand(0,wkeys.length))]],
-      shootT:rand(0,1.5), aggro:rand(42,72), hitFlash:0,
-      los:false, losT:rand(0,0.4),                     // line-of-sight cache
+    const z0={
+      mesh, x, z, y:0, alive:true,
+      hp:hpBase*rand(0.85,1.2), maxHp:hpBase*1.2,
+      speed:spd*rand(0.85,1.15), dmg:dmgBase*rand(0.85,1.15),
+      atkT:0, hitFlash:0, target:null, wobble:rand(0,6.28),
     };
-    drawHB(bot); bots.push(bot);
+    drawHB(z0); bots.push(z0);
   }
+  toast("🌙 НІЧ "+night+" — "+count+" зомбі!");
 }
 
 // ===================================================================
@@ -1070,7 +1139,7 @@ function openChest(c){
   toast("Скриню відкрито!");
 }
 function dropLoot(x,z,type){
-  const col={mat:0xc9a76a,stone:0x9fb4c8,ammo:0xffe08a,shield:0x2f80ff,heal:0x35d07f,weapon:0xff9d5c}[type];
+  const col={mat:0xc9a76a,stone:0x9fb4c8,metal:0xcfd6dd,ammo:0xffe08a,shield:0x2f80ff,heal:0x35d07f,weapon:0xff9d5c}[type];
   const m=new THREE.Mesh(new THREE.OctahedronGeometry(0.4,0),
     new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.5}));
   m.position.set(x,1,z); m.castShadow=true; dynGroup.add(m);
@@ -1080,6 +1149,7 @@ function pickupLoot(l){
   switch(l.type){
     case "mat": player.mats=Math.min(999,player.mats+40); toast("+40 🪵 дерево"); break;
     case "stone": player.stone=Math.min(999,player.stone+30); toast("+30 🪨 камінь"); break;
+    case "metal": player.metal=Math.min(999,player.metal+20); toast("+20 🔩 метал"); break;
     case "ammo": { const inv=player.inv[player.cur]; if(inv&&!inv.melee) inv.reserve+=Math.round(WEAPONS[player.cur].mag*2); toast("+Патрони"); break; }
     case "shield": player.shield=Math.min(player.maxShield,player.shield+50); toast("+50 Щит"); break;
     case "heal": player.hp=Math.min(player.maxHp,player.hp+40); toast("+40 Здоров'я"); break;
@@ -1100,41 +1170,42 @@ function pickupLoot(l){
 }
 
 // ===================================================================
-//  Storm
+//  Day / night cycle — night comes after DAY_LEN, zombies attack
 // ===================================================================
-function makeStorm(){
-  const geo=new THREE.CylinderGeometry(1,1,60,64,1,true);
-  const mat=new THREE.MeshBasicMaterial({color:0x8b3ff7,transparent:true,opacity:0.22,side:THREE.BackSide,depthWrite:false});
-  const mesh=new THREE.Mesh(geo,mat); mesh.position.y=30; dynGroup.add(mesh);
-  return {mesh, cx:0, cz:0, radius:WORLD*0.95, target:WORLD*0.95, phase:0, timer:28, shrinking:false};
+const DAY_LEN=300, NIGHT_LEN=80;   // first day 5 min; nights last 80s
+let clockT, phase, nightNum;
+function initCycle(){ clockT=DAY_LEN; phase="day"; nightNum=0;
+  document.getElementById("zoneVal").textContent="0"; warnEl.style.opacity=0; }
+function startNight(){
+  phase="night"; nightNum++; clockT=NIGHT_LEN;
+  document.getElementById("zoneVal").textContent=nightNum;
+  spawnWave(nightNum);
+  warnEl.textContent="🌙 НІЧ "+nightNum+" — зомбі йдуть! 🧟"; warnEl.style.opacity=1;
+  setTimeout(()=>{ if(phase==="night") warnEl.style.opacity=0; },3500);
 }
-function updateStorm(dt){
-  const s=storm;
-  s.timer-=dt;
-  if(s.shrinking){
-    s.radius=Math.max(s.target, s.radius-(s.radius-s.target)*0.22*dt);  // slower shrink
-    if(s.radius<=s.target+0.5){ s.radius=s.target; s.shrinking=false; s.timer=Math.max(20,34-s.phase*2); warnEl.style.opacity=0; }
-  } else if(s.timer<=0 && s.target>30){
-    s.phase++; s.shrinking=true;
-    s.target=Math.max(30, s.radius*0.68);   // gentler radius step
-    const a=rand(0,Math.PI*2), dd=rand(0,s.radius*0.3);
-    s.cx=clamp(s.cx+Math.cos(a)*dd, -WORLD+s.target, WORLD-s.target);
-    s.cz=clamp(s.cz+Math.sin(a)*dd, -WORLD+s.target, WORLD-s.target);
-    document.getElementById("zoneVal").textContent=s.phase+1;
-    warnEl.style.opacity=1;
-  } else if(s.timer<=4 && s.target>30){ warnEl.style.opacity=1; }
-
-  s.mesh.position.set(s.cx,30,s.cz);
-  s.mesh.scale.set(s.radius,1,s.radius);
-
-  // damage player outside (not while parachuting in)
-  if(player.alive && !player.skydiving && Math.hypot(player.pos.x-s.cx, player.pos.z-s.cz)>s.radius){
-    damagePlayer(7*dt*(1+s.phase*0.25), true);
-  }
-  // damage bots outside
-  for(const b of bots){ if(!b.alive)continue;
-    if(Math.hypot(b.x-s.cx,b.z-s.cz)>s.radius){ b.hp-=9*dt*(1+s.phase*0.4); if(b.hp<=0) killBot(b,true); }
-  }
+function startDay(){
+  phase="day"; clockT = nightNum===0?DAY_LEN:180;   // shorter days after the first
+  // dawn: surviving zombies burn away
+  for(const b of bots){ if(b.alive){ b.alive=false; burst(b.x,1,b.z,0x8a8a8a,6); dynGroup.remove(b.mesh); } }
+  toast("☀ Світанок! Готуйся до ночі "+(nightNum+1));
+}
+function updateCycle(dt){
+  clockT-=dt;
+  if(phase==="day" && clockT<=0) startNight();
+  else if(phase==="night" && clockT<=0) startDay();
+  // sky/light lerp toward day or night look
+  const night = phase==="night";
+  const k = clamp(night ? 1-clockT/NIGHT_LEN*0 : 0, 0,1); // simple: full night vs full day
+  const t = night?1:0;
+  sun.intensity += ((t?0.15:1.15)-sun.intensity)*Math.min(1,dt*2);
+  hemi.intensity += ((t?0.25:0.85)-hemi.intensity)*Math.min(1,dt*2);
+  const dayCol=new THREE.Color(0x8fb7e8), nightCol=new THREE.Color(0x0a1024);
+  scene.background.lerp(t?nightCol:dayCol, Math.min(1,dt*2));
+  if(scene.fog) scene.fog.color.copy(scene.background);
+  // HUD phase readout
+  const mm=Math.max(0,Math.floor(clockT/60)), ss=Math.max(0,Math.floor(clockT%60));
+  document.getElementById("phaseVal").textContent=(night?"🌙 ":"☀ ")+mm+":"+String(ss).padStart(2,"0");
+  document.getElementById("phaseLbl").textContent=night?"Ніч триває":"До ночі";
 }
 
 // ===================================================================
@@ -1571,18 +1642,19 @@ function botShoot(b){
   tracer(origin, target, 0xff6a6a);
 }
 
-function killBot(b, byStorm){
+function killBot(b, silent){
   b.alive=false;
-  burst(b.x,b.y+1,b.z, 0xffffff, 18);
+  burst(b.x,b.y+1,b.z, 0x5a8a3a, 16);
   dynGroup.remove(b.mesh);
-  if(!byStorm){ killCount++; killFeed("Ти", WEAPONS[player.cur].name, "суперника"); }
+  if(!silent){ killCount++; }
   // drop loot
   const r=Math.random();
-  if(r<0.32) dropLoot(b.x,b.z,"mat");
-  else if(r<0.5) dropLoot(b.x,b.z,"stone");
-  else if(r<0.66) dropLoot(b.x,b.z,"ammo");
-  else if(r<0.8) dropLoot(b.x,b.z,"shield");
-  else if(r<0.92) dropLoot(b.x,b.z,"heal");
+  if(r<0.22) dropLoot(b.x,b.z,"mat");
+  else if(r<0.40) dropLoot(b.x,b.z,"stone");
+  else if(r<0.54) dropLoot(b.x,b.z,"metal");
+  else if(r<0.70) dropLoot(b.x,b.z,"ammo");
+  else if(r<0.82) dropLoot(b.x,b.z,"shield");
+  else if(r<0.93) dropLoot(b.x,b.z,"heal");
   else dropLoot(b.x,b.z,"weapon");
   updateHUD();
 }
@@ -1651,7 +1723,7 @@ addEventListener("keydown",e=>{
   else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
   else if(/^Digit[1-8]$/.test(c)){
     const n=c.slice(5);
-    if(buildMode){ const pc={1:"wall",2:"door",3:"window",4:"floor",5:"ladder",6:"turret"}[n];
+    if(buildMode){ const pc={1:"wall",2:"door",3:"window",4:"floor",5:"ladder",6:"turret",7:"torch",8:"spikes"}[n];
       if(pc){ buildPiece=pc; buildInvBar(); updateGhost(); } }
     else { const wname=ALLSEL[parseInt(n)-1]; if(wname && player.inv[wname]){ selectWeapon(wname); } }
   }
@@ -1704,7 +1776,7 @@ function tryOpenChest(){
 function buildInvBar(){
   const bar=document.getElementById("invbar"); bar.innerHTML="";
   if(buildMode){
-    const pieces=[["wall","Стіна","1"],["door","Двері","2"],["window","Вікно","3"],["floor","Підлога","4"],["ladder","Драбина","5"],["turret","Турель","6"]];
+    const pieces=[["wall","Стіна","1"],["door","Двері","2"],["window","Вікно","3"],["floor","Підлога","4"],["ladder","Драбина","5"],["turret","Турель","6"],["torch","Факел","7"],["spikes","Шипи","8"]];
     for(const [id,label,key] of pieces){
       const d=document.createElement("div");
       d.className="slot"+(buildPiece===id?" active":"");
@@ -1730,13 +1802,12 @@ function updateHUD(){
   document.getElementById("killVal").textContent=killCount;
   document.getElementById("matVal").textContent=player.mats;
   document.getElementById("stoneVal").textContent=player.stone;
+  document.getElementById("metalVal").textContent=player.metal;
   const w=WEAPONS[player.cur], inv=player.inv[player.cur];
   document.getElementById("wpnName").textContent=w.name;
   document.getElementById("ammo").innerHTML= w.melee ? "🪓<small> інструмент</small>"
      : player.reloading? "…<small> перезарядка</small>"
      : (inv?inv.ammo:0)+"<small> / "+(inv?inv.reserve:0)+"</small>";
-  const alive=bots.filter(b=>b.alive).length+ (player.alive?1:0);
-  document.getElementById("aliveVal").textContent=alive;
 }
 
 // minimap
@@ -1744,17 +1815,13 @@ const miniCtx=document.getElementById("mini").getContext("2d");
 function drawMini(){
   const S=150, sc=S/(WORLD*2);
   miniCtx.clearRect(0,0,S,S);
-  miniCtx.fillStyle="rgba(30,45,30,.5)"; miniCtx.fillRect(0,0,S,S);
+  miniCtx.fillStyle= phase==="night"?"rgba(12,16,36,.7)":"rgba(30,45,30,.5)"; miniCtx.fillRect(0,0,S,S);
   const toX=x=>(x+WORLD)*sc, toZ=z=>(z+WORLD)*sc;
-  // storm
-  miniCtx.beginPath(); miniCtx.arc(toX(storm.cx),toZ(storm.cz),storm.radius*sc,0,7);
-  miniCtx.strokeStyle="rgba(200,140,255,.9)"; miniCtx.lineWidth=1.5; miniCtx.stroke();
-  miniCtx.fillStyle="rgba(139,63,247,.12)"; miniCtx.fill();
   // chests
   miniCtx.fillStyle="#ffd54a";
   for(const c of chests){ if(!c.opened) miniCtx.fillRect(toX(c.x)-1,toZ(c.z)-1,2,2); }
-  // bots
-  miniCtx.fillStyle="#ff6b7d";
+  // zombies
+  miniCtx.fillStyle="#7bd45a";
   for(const b of bots){ if(b.alive) miniCtx.fillRect(toX(b.x)-1,toZ(b.z)-1,2,2); }
   // enemy helis (orange)
   miniCtx.fillStyle="#ff9d2f";
@@ -1861,7 +1928,7 @@ function update(dt){
 
   animWorld(dt);   // flags waving + helicopter
 
-  if(player.skydiving){ updateSkydive(dt); updateStorm(dt); updateEnemyHelis(dt); drawMini(); return; }
+  if(player.skydiving){ updateSkydive(dt); updateEnemyHelis(dt); drawMini(); return; }
 
   // ---- Player control (on foot, unless driving) ----
   if(player.vehicle){ updateVehicle(dt); }
@@ -1953,58 +2020,41 @@ function update(dt){
     if(!l.fall && Math.hypot(player.pos.x-l.x,player.pos.z-l.z)<1.6){ pickupLoot(l); dynGroup.remove(l.mesh); loots.splice(i,1); }
   }
 
-  // ---- Bots ----
-  let botShootBudget=6, losBudget=8; // limit raycasts per frame
+  // ---- Zombies (melee: chase player, smash walls in the way, spikes hurt them) ----
   for(const b of bots){
     if(!b.alive) continue;
     if(b.hitFlash>0){ b.hitFlash-=dt*60; }
+    b.atkT-=dt; b.wobble+=dt*6;
     const dxp=player.pos.x-b.x, dzp=player.pos.z-b.z;
     const dp=Math.hypot(dxp,dzp);
-    const inStorm=Math.hypot(b.x-storm.cx,b.z-storm.cz)>storm.radius;
-    // refresh line-of-sight (throttled + budgeted)
-    b.losT-=dt;
-    if(b.losT<=0){
-      if(player.alive && dp<b.aggro+8 && losBudget>0){ losBudget--; b.los=botHasLOS(b); b.losT=0.25+rand(0,0.2); }
-      else { b.los=false; b.losT=0.3; }
-    }
-    const canSee = player.alive && dp<b.aggro && (b.los || dp<12); // very close = "hears" you
-    let tx,tz;
-    if(inStorm){ tx=storm.cx; tz=storm.cz; b.state="flee"; }
-    else if(canSee){
-      b.state="chase";
-      if(dp>28){ tx=player.pos.x; tz=player.pos.z; }
-      else if(dp<12){ tx=b.x-dxp; tz=b.z-dzp; }
-      else { const perp=Math.atan2(dzp,dxp)+Math.PI/2; tx=b.x+Math.cos(perp)*10; tz=b.z+Math.sin(perp)*10; }
-    } else {
-      b.state="wander";
-      b.wt-=dt;
-      if(b.wt<=0){ b.wx=b.x+rand(-40,40); b.wz=b.z+rand(-40,40); b.wt=rand(2,4); }
-      tx=b.wx; tz=b.wz;
-    }
-    const a=Math.atan2(tz-b.z,tx-b.x);
+    const a=Math.atan2(dzp,dxp);       // always march toward the player
     let bnx=b.x+Math.cos(a)*b.speed*dt;
     let bnz=b.z+Math.sin(a)*b.speed*dt;
-    // simple structure/world block for bots
-    let blocked=false;
-    const br=0.6;
-    for(const c of worldColliders){
-      if(bnx>c.minx-br&&bnx<c.maxx+br&&bnz>c.minz-br&&bnz<c.maxz+br){ blocked=true; break; }
+    // blocked by a wall/structure? smash it.
+    const br=0.6; let blockedStruct=null, blockedWorld=false;
+    for(const s of structures){
+      const cols = s.col?[s.col]:(s.cols||[]);
+      for(const c of cols){ if(bnx>c.minx-br&&bnx<c.maxx+br&&bnz>c.minz-br&&bnz<c.maxz+br){ blockedStruct=s; break; } }
+      if(blockedStruct) break;
     }
-    if(!blocked){ b.x=clamp(bnx,-WORLD+2,WORLD-2); b.z=clamp(bnz,-WORLD+2,WORLD-2); }
+    if(!blockedStruct) for(const c of worldColliders){
+      if(bnx>c.minx-br&&bnx<c.maxx+br&&bnz>c.minz-br&&bnz<c.maxz+br){ blockedWorld=true; break; }
+    }
+    if(blockedStruct){
+      if(b.atkT<=0){ b.atkT=0.8; blockedStruct.hp-=b.dmg*1.6; burst(b.x+Math.cos(a),1.4,b.z+Math.sin(a),0xc9a76a,3);
+        if(blockedStruct.hp<=0) destroyStructure(blockedStruct); }
+    } else if(!blockedWorld){
+      b.x=clamp(bnx,-WORLD+2,WORLD-2); b.z=clamp(bnz,-WORLD+2,WORLD-2);
+    }
     b.mesh.position.set(b.x,b.y,b.z);
-    b.mesh.rotation.y=-a+Math.PI/2;
-    // face health bar to camera handled by sprite automatically
-    // shooting
-    if(b.state==="chase" && player.alive){
-      b.shootT-=dt;
-      if(b.shootT<=0 && botShootBudget>0){
-        botShootBudget--; b.shootT=b.weapon.rof/1000*rand(1,2.2);
-        botShoot(b);
-      }
-    }
+    b.mesh.rotation.y=-a+Math.PI/2 + Math.sin(b.wobble)*0.12;
+    // attack the player when adjacent
+    if(dp<1.7 && player.alive && b.atkT<=0){ b.atkT=0.9; damagePlayer(b.dmg,false); }
+    // spike traps hurt zombies
+    for(const sp of spikeTraps){ if(Math.abs(b.x-sp.x)<sp.r && Math.abs(b.z-sp.z)<sp.r){
+      b.hp-=45*dt; b.hitFlash=3; if(b.hp<=0){ killBot(b,false); break; } } }
   }
-  // compact dead bots occasionally
-  if(bots.length>30 && Math.random()<0.05) bots=bots.filter(b=>b.alive);
+  if(bots.length>40 && Math.random()<0.05) bots=bots.filter(b=>b.alive);
 
   // ---- Bullets (tracers) ----
   for(let i=bullets.length-1;i>=0;i--){
@@ -2020,8 +2070,11 @@ function update(dt){
     if(p.life<=0){ dynGroup.remove(p.mesh); particles.splice(i,1); }
   }
 
-  // ---- Storm ----
-  updateStorm(dt);
+  // ---- Day / night ----
+  updateCycle(dt);
+  // torch flicker
+  for(const t of torches){ const f=0.8+Math.sin(performance.now()*0.02+t.phase)*0.25+Math.random()*0.1;
+    t.light.intensity=f*1.6; t.flame.scale.y=0.8+f*0.4; }
 
   // ---- Turrets, enemy helis, rockets ----
   updateTurrets(dt);
@@ -2034,10 +2087,6 @@ function update(dt){
 
   // toast
   if(toastT>0){ toastT-=dt; if(toastT<=0) document.getElementById("toast").style.opacity=0; }
-
-  // win check
-  const alive=bots.filter(b=>b.alive).length;
-  if(alive===0 && player.alive) endGame(true);
 
   drawMini();
 }
@@ -2074,8 +2123,8 @@ function startGame(){
   player.yaw=rand(0,Math.PI*2);
   player.pitch=-0.55;                                     // look down
 
-  storm=makeStorm();
-  spawnBots(); spawnChests(); spawnCars(); spawnEnemyHelis(4);
+  initCycle();                         // day/night: night comes after 5 min
+  spawnChests(); spawnCars(); spawnEnemyHelis(3);   // zombies spawn at night, not now
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
 
   // helicopter drops you off
@@ -2084,8 +2133,7 @@ function startGame(){
   heli.position.set(dropX-28,135,dropZ-28);
   dynGroup.add(heli);
 
-  document.getElementById("zoneVal").textContent="1";
-  toast("Стрибок! Керуй WASD 🪂 — шукай Магазин і ТЦК");
+  toast("День 1 ☀ — збирай ресурси й будуй базу. Ніч через 5 хв!");
   state="play"; running=true; lastTime=performance.now();
   renderer.domElement.requestPointerLock();
   requestAnimationFrame(loop);
@@ -2097,16 +2145,10 @@ function endGame(victory){
   document.exitPointerLock && document.exitPointerLock();
   const end=document.getElementById("endScreen");
   const res=document.getElementById("resultText");
-  const place=victory?1:bots.filter(b=>b.alive).length+1;
-  if(victory){
-    res.textContent="#1 VICTORY ROYALE"; res.className="result victory";
-    document.getElementById("endFlavor").textContent="Ти пережив усіх суперників і сам Шторм. Корона твоя! 👑";
-  } else {
-    res.textContent="ТЕБЕ УСУНЕНО"; res.className="result defeat";
-    document.getElementById("endFlavor").textContent="Тебе вибили з матчу. Висаджуйся знову і борись за корону.";
-  }
+  res.textContent="ТЕБЕ З'ЇЛИ 🧟"; res.className="result defeat";
+  document.getElementById("endFlavor").textContent="Зомбі дістали тебе. Наступного разу побудуй міцнішу базу!";
   document.getElementById("endStats").innerHTML=
-    `Місце: <b style="color:var(--gold)">#${place}</b> з ${BOT_COUNT+1} · Вбивств: <b style="color:var(--cyan)">${killCount}</b> · Фаза шторму: <b>${storm.phase+1}</b>`;
+    `Пережито ночей: <b style="color:var(--gold)">${Math.max(0,nightNum-(phase==="night"?1:0))}</b> · Вбито зомбі: <b style="color:var(--cyan)">${killCount}</b> · Дійшов до Ночі <b>${nightNum}</b>`;
   setTimeout(()=>end.classList.remove("hidden"),600);
 }
 
