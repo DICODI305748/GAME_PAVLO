@@ -2,6 +2,21 @@
 
 A **3D first-person zombie survival** game in a single HTML file, built with [Three.js](https://threejs.org). Explore a **procedurally generated** world (forests, mountains, a shop, a ТЦК and randomized landmarks), gather **wood 🪵, stone 🪨 and metal 🔩**, and build a fortified base with Fortnite-style pieces. **Every 5 minutes night falls** and a horde of zombies swarms in from the edges — and they **smash through your walls**. Each night there are more of them and they hit harder. Upgrade your walls **wood → stone → metal**, plant **torches and spikes**, mount **turrets**, and survive as many nights as you can.
 
+## 🌐 Online co-op (optional)
+
+Play with friends on a shared map. You need to run the tiny relay server once:
+
+```bash
+npm install     # installs `ws`
+npm start        # starts the co-op server on ws://localhost:8080
+```
+
+Then open the game and use the **🌐 Online co-op** box on the start screen: type a **room code** and click **Зайти онлайн**. Everyone who joins the **same room code and server** shares the same procedurally generated map (the room code seeds the world), sees each other move, **builds a base together**, and fights the **same zombie horde** (the first player in the room is the host and owns the zombie simulation).
+
+- To join a specific server, append `?room=CODE&server=ws://HOST:8080` to the URL.
+- For friends over the internet, run the server on a host they can reach (VPS, or a tunnel like `ngrok http 8080` → use the `ws://`/`wss://` URL it gives).
+- The offline single-player game still works exactly as before if you don't enter a room.
+
 ## 🌙 Day / night survival loop
 
 - **Day (5 min the first time, then shorter):** loot chests, chop trees for wood, mine rocks for stone, and build/upgrade your base. No zombies.

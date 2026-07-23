@@ -91,6 +91,7 @@
     <div><div class="val" id="zoneVal">1</div><div class="lbl">Ніч</div></div>
   </div>
   <div class="warn" id="warn">🌙 НІЧ — зомбі йдуть! 🧟</div>
+  <div id="netStatus" style="position:absolute;left:16px;top:64px;font-size:12px;color:#7fe0ff;text-shadow:0 1px 2px #000;letter-spacing:.5px"></div>
   <div class="toast" id="toast"></div>
   <div id="killfeed"></div>
   <canvas id="mini" width="150" height="150"></canvas>
@@ -130,6 +131,16 @@
     <p style="margin-top:12px;color:#9fb0e0;font-size:13px">Натисни кнопку, потім клікни по екрану щоб захопити мишу. <b>Esc</b> — відпустити.</p>
   </div>
   <button class="play" id="startBtn">Почати виживання</button>
+
+  <div style="margin-top:18px;background:rgba(20,28,60,.6);border:1px solid rgba(34,195,255,.4);border-radius:12px;padding:12px 18px;max-width:560px">
+    <div style="color:#7fe0ff;letter-spacing:1px;margin-bottom:6px">🌐 ОНЛАЙН-КООПЕРАТИВ</div>
+    <p style="font-size:13px;color:#b9c6f0;line-height:1.5;margin-bottom:8px">Спершу запусти сервер: <code style="color:#ffd54a">npm install</code> потім <code style="color:#ffd54a">npm start</code>. Тоді введи код кімнати й тисни «Зайти» — друзі з тим самим кодом (і адресою сервера) грають разом на спільній карті. Код кімнати = сід світу.</p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+      <input id="roomInput" placeholder="код кімнати (напр. 1234)" style="padding:8px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:180px">
+      <button id="onlineBtn" style="font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,#22c3ff,#5ee0b0);border:none;border-radius:8px;padding:8px 18px;cursor:pointer">Зайти онлайн</button>
+    </div>
+    <p id="onlineNow" style="font-size:12px;color:#5ee0b0;margin-top:8px"></p>
+  </div>
 </div>
 
 <!-- End -->
@@ -179,7 +190,14 @@ const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const snap=(v)=>Math.round(v/GRID)*GRID;
 
 // ---- Procedural world generation (seeded, so each page load is a new world) ----
-const WORLD_SEED = (Math.random()*1e9)>>>0;
+// Online co-op: read ?room= and ?server= from the URL. The room code also
+// seeds the world so everyone in the room gets the SAME map.
+const NETP = new URLSearchParams(location.search);
+const ROOM = NETP.get("room");
+const SERVER_URL = NETP.get("server") || ("ws://"+(location.hostname||"localhost")+":8080");
+const ONLINE = !!ROOM;
+function hashStr(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+const WORLD_SEED = ONLINE ? hashStr(ROOM) : ((Math.random()*1e9)>>>0);
 function mulberry32(a){ return function(){ a|=0; a=(a+0x6D2B79F5)|0; let t=Math.imul(a^(a>>>15),1|a);
   t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
 const wrand = mulberry32(WORLD_SEED);                 // seeded RNG for world gen
@@ -677,6 +695,108 @@ let enemyHelis = [];   // shootable helicopters patrolling the sky
 let player, storm, state="menu", running=false, lastTime=0;
 let killCount=0, buildMode=false, buildPiece="wall";
 let toastT=0, warnEl=document.getElementById("warn");
+let zid=0;   // host-side network id for zombies
+
+// ===================================================================
+//  Online co-op networking (relay via server.js). Room code seeds the map.
+// ===================================================================
+const net = {
+  ws:null, id:0, host:true, connected:false, online:ONLINE,
+  peers:new Map(),          // peerId -> {mesh, tx,ty,tz, yaw}
+  sendT:0, snapT:0,
+  isHost(){ return !this.online || this.host; },   // solo == host of your own game
+
+  connect(){
+    if(!this.online) return;
+    try{ this.ws=new WebSocket(SERVER_URL); }catch(e){ netStatus("Помилка з'єднання"); return; }
+    netStatus("З'єднання…");
+    this.ws.onopen=()=>{ this.ws.send(JSON.stringify({t:"join", room:ROOM})); };
+    this.ws.onclose=()=>{ this.connected=false; netStatus("Офлайн (сервер недоступний)"); };
+    this.ws.onerror=()=>{ netStatus("Сервер недоступний — запусти server.js"); };
+    this.ws.onmessage=(e)=>{ let m; try{m=JSON.parse(e.data);}catch{return;} this.onMsg(m); };
+  },
+  send(msg){ if(this.online && this.ws && this.ws.readyState===1){ this.ws.send(JSON.stringify(msg)); } },
+
+  onMsg(m){
+    switch(m.t){
+      case "welcome": this.id=m.id; this.host=m.host; this.connected=true;
+        netStatus(m.host?("ХОСТ · кімната "+ROOM+" · гравців: "+m.count):("У КІМНАТІ "+ROOM+" · ти гість")); break;
+      case "host": this.host=true; netStatus("Тебе призначено ХОСТОМ"); break;
+      case "peerjoin": if(this.isHost()) this.sendFullBuilds(m.id); break;   // host shares existing base
+      case "peerleave": this.removePeer(m.from!=null?m.from:m.id); break;
+      case "pos": this.updatePeer(m); break;
+      case "build": spawnPiece(m.p, true); break;
+      case "upgrade": { const s=structures.find(x=>x.key===m.key); if(s && s.tier!=="metal") upgradeTier(s); break; }
+      case "destroy": { const s=structures.find(x=>x.key===m.key); if(s) destroyStructure(s, true); break; }
+      case "zsnap": if(!this.isHost()) applyZSnap(m); break;
+      case "cycle": if(!this.isHost()){ phase=m.phase; nightNum=m.night; clockT=m.clock;
+        document.getElementById("zoneVal").textContent=nightNum; } break;
+      case "zhit": if(this.isHost()){ const b=bots.find(z=>z.nid===m.nid && z.alive);
+        if(b){ b.hp-=m.dmg; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } } break;
+    }
+  },
+  sendFullBuilds(toId){ for(const s of structures){ if(s.key)
+    this.send({t:"build", p:{kind:s.kind,x:s.x,y:s.y,z:s.z,rot:s.rot||0}}); } },
+
+  updatePeer(m){
+    let pr=this.peers.get(m.from);
+    if(!pr){ pr={mesh:makeAvatar(), tx:m.x,ty:m.y,tz:m.z,yaw:m.yaw}; dynGroup.add(pr.mesh); this.peers.set(m.from,pr); }
+    pr.tx=m.x; pr.ty=m.y; pr.tz=m.z; pr.yaw=m.yaw;
+  },
+  removePeer(id){ const pr=this.peers.get(id); if(pr){ dynGroup.remove(pr.mesh); this.peers.delete(id); } },
+
+  tick(dt){
+    if(!this.connected) return;
+    // send my transform ~12/s
+    this.sendT-=dt;
+    if(this.sendT<=0){ this.sendT=0.08;
+      this.send({t:"pos", x:+player.pos.x.toFixed(2), y:+player.pos.y.toFixed(2), z:+player.pos.z.toFixed(2), yaw:+player.yaw.toFixed(2)}); }
+    // smooth remote avatars
+    for(const pr of this.peers.values()){
+      pr.mesh.position.x += (pr.tx-pr.mesh.position.x)*Math.min(1,dt*12);
+      pr.mesh.position.y += (pr.ty-pr.mesh.position.y)*Math.min(1,dt*12);
+      pr.mesh.position.z += (pr.tz-pr.mesh.position.z)*Math.min(1,dt*12);
+      pr.mesh.rotation.y += (pr.yaw-pr.mesh.rotation.y)*Math.min(1,dt*12);
+    }
+    // host broadcasts zombies + day/night ~7/s
+    if(this.isHost()){
+      this.snapT-=dt;
+      if(this.snapT<=0){ this.snapT=0.14;
+        const zs=[]; for(const b of bots){ if(b.alive) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp)]); }
+        this.send({t:"zsnap", z:zs, phase, night:nightNum, clock:Math.round(clockT)});
+      }
+    } else {
+      // client: smoothly interpolate host-driven zombies
+      for(const b of bots){ if(b.remote && b.alive && b.tx!=null){
+        b.x+=(b.tx-b.x)*Math.min(1,dt*10); b.z+=(b.tz-b.z)*Math.min(1,dt*10);
+        b.mesh.position.set(b.x,0,b.z); } }
+    }
+  },
+};
+function netStatus(s){ const el=document.getElementById("netStatus"); if(el) el.textContent="🌐 "+s; }
+function makeAvatar(){
+  const g=new THREE.Group();
+  const bodyMat=new THREE.MeshStandardMaterial({color:0x22c3ff,roughness:.6});
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.48,1.5,10),bodyMat); body.position.y=1.0; body.castShadow=true; g.add(body);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,10),new THREE.MeshStandardMaterial({color:0xf1c9a5})); head.position.y=1.95; g.add(head);
+  const gun=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.2,0.7),new THREE.MeshStandardMaterial({color:0x22262f})); gun.position.set(0.35,1.3,-0.4); g.add(gun);
+  return g;
+}
+// Client: reconcile zombies from a host snapshot.
+function applyZSnap(m){
+  const seen=new Set();
+  for(const [nid,x,z,hp] of m.z){
+    seen.add(nid);
+    let b=bots.find(z2=>z2.nid===nid);
+    if(!b){ const mesh=makeBotMesh(0x5a8a3a); mesh.position.set(x,0,z); dynGroup.add(mesh);
+      b={mesh,nid,x,z,y:0,alive:true,hp,maxHp:hp,speed:0,dmg:0,atkT:0,hitFlash:0,wobble:0,remote:true}; bots.push(b); drawHB(b); }
+    b.tx=x; b.tz=z; b.hp=hp; drawHB(b);
+  }
+  // remove zombies no longer in snapshot
+  for(const b of bots){ if(b.remote && !seen.has(b.nid) && b.alive){ b.alive=false; dynGroup.remove(b.mesh); } }
+  phase=m.phase; nightNum=m.night; clockT=m.clock;
+  document.getElementById("zoneVal").textContent=nightNum;
+}
 
 // ghost preview
 let ghost=null;
@@ -684,6 +804,7 @@ let ghost=null;
 function clearGroup(){
   while(dynGroup.children.length) dynGroup.remove(dynGroup.children[0]);
   structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[]; torches=[]; spikeTraps=[];
+  if(typeof net!=="undefined" && net.peers) net.peers.clear();   // avatars were in dynGroup
 }
 
 // ===================================================================
@@ -985,37 +1106,35 @@ function placeTurret(p){
   toast("Турель встановлено! 🔫");
 }
 
-function placeStructure(){
-  const p=placement();
-  const cost=pieceCost(p.kind);
-  if(player.mats<cost){ toast("Треба "+cost+" 🪵 дерева"); return; }
-  if(p.kind==="turret"){ placeTurret(p); player.mats-=cost; updateHUD(); return; }
+function pieceKey(p){ return p.kind+":"+Math.round(p.x)+":"+Math.round(p.y)+":"+Math.round(p.z); }
+// Create the actual piece (mesh/collider/prop) for placement data p. No cost check.
+function spawnPiece(p, quiet){
+  if(p.kind==="turret"){ placeTurret(p); if(!quiet)toast("Турель встановлено! 🔫"); return; }
   if(p.kind==="torch"){
     const m=makeTorch(p.x,p.z); m.position.y=p.y; dynGroup.add(m);
     torches.push({mesh:m, flame:m.userData.flame, light:m.userData.light, phase:rand(0,6.28)});
-    player.mats-=cost; playBlip(300,0.05); updateHUD(); toast("Факел 🔥"); return;
+    if(!quiet){ playBlip(300,0.05); toast("Факел 🔥"); } return;
   }
   if(p.kind==="spikes"){
     const m=makeSpikes(p.x,p.z); m.position.y=p.y; dynGroup.add(m);
     spikeTraps.push({mesh:m, x:p.x, z:p.z, y:p.y, r:GRID*0.5});
-    player.mats-=cost; playBlip(260,0.05); updateHUD(); toast("Шипи 🔩"); return;
+    if(!quiet){ playBlip(260,0.05); toast("Шипи 🔩"); } return;
   }
   let mesh;
   if(p.kind==="ladder") mesh=makeLadderMesh();
   else mesh=makePieceMesh(p.kind);          // textured wall / door / window / floor
   mesh.position.set(p.x,p.y,p.z); mesh.rotation.set(0,p.rot,0);
   dynGroup.add(mesh); mesh.updateMatrixWorld();
-  const s={mesh, hp:150, maxHp:150, kind:p.kind, tier:"wood", ...p};
-  const alongX = Math.abs(Math.sin(p.rot))<0.5;   // unrotated piece spans X, thin in Z
-  const HT=WALL_T/2;                               // collider matches the wall exactly: GRID wide × WALL_T thick
-  const base=p.y-GRID/2, top=p.y+GRID/2;           // vertical extent (height-aware collision)
+  const s={mesh, hp:150, maxHp:150, kind:p.kind, tier:"wood", key:pieceKey(p), ...p};
+  const alongX = Math.abs(Math.sin(p.rot))<0.5;
+  const HT=WALL_T/2;
+  const base=p.y-GRID/2, top=p.y+GRID/2;
   const wallCol=()=> alongX
     ? {minx:p.x-GRID/2,maxx:p.x+GRID/2,minz:p.z-HT,maxz:p.z+HT,base,top}
     : {minx:p.x-HT,maxx:p.x+HT,minz:p.z-GRID/2,maxz:p.z+GRID/2,base,top};
   if(p.kind==="wall" || p.kind==="window"){
-    s.col=wallCol();                              // window has a sill -> blocks walking
+    s.col=wallCol();
   } else if(p.kind==="door"){
-    // two side posts with a walkable gap between them
     const off=GRID/2-0.6;
     if(alongX){
       s.cols=[ {minx:p.x-off-0.6,maxx:p.x-off+0.6,minz:p.z-HT,maxz:p.z+HT,base,top},
@@ -1030,7 +1149,15 @@ function placeStructure(){
     s.ladder={x:p.x, z:p.z, base:p.y-GRID/2, top:p.y+GRID/2};
   }
   structures.push(s);
+  return s;
+}
+function placeStructure(){
+  const p=placement();
+  const cost=pieceCost(p.kind);
+  if(player.mats<cost){ toast("Треба "+cost+" 🪵 дерева"); return; }
+  spawnPiece(p, false);
   player.mats-=cost; playBlip(300,0.05); updateHUD();
+  net.send({t:"build", p:{kind:p.kind,x:p.x,y:p.y,z:p.z,rot:p.rot}});
 }
 
 // Upgrade the wooden structure you're looking at, spending stone.
@@ -1058,6 +1185,7 @@ function upgradeAimed(){
     burst(st.mesh.position.x,st.mesh.position.y,st.mesh.position.z,0xcfd6dd,16);
     playBlip(660,0.09); toast("Камінь → Метал 🔩 найміцніше!"); updateHUD();
   }
+  if(st.key) net.send({t:"upgrade", key:st.key});
 }
 
 // ===================================================================
@@ -1113,7 +1241,7 @@ function spawnWave(night){
     const mesh=makeBotMesh(tints[i%tints.length]);
     mesh.position.set(x,0,z); dynGroup.add(mesh);
     const z0={
-      mesh, x, z, y:0, alive:true,
+      mesh, x, z, y:0, alive:true, nid:++zid,
       hp:hpBase*rand(0.85,1.2), maxHp:hpBase*1.2,
       speed:spd*rand(0.85,1.15), dmg:dmgBase*rand(0.85,1.15),
       atkT:0, hitFlash:0, target:null, wobble:rand(0,6.28),
@@ -1206,10 +1334,12 @@ function startDay(){
   toast("☀ Світанок! Готуйся до ночі "+(nightNum+1));
 }
 function updateCycle(dt){
-  clockT-=dt;
-  if(phase==="day" && clockT<=0) startNight();
-  else if(phase==="night" && clockT<=0) startDay();
-  // sky/light lerp toward day or night look
+  if(net.isHost()){                       // host owns the clock; clients get it from snapshots
+    clockT-=dt;
+    if(phase==="day" && clockT<=0) startNight();
+    else if(phase==="night" && clockT<=0) startDay();
+  }
+  // sky/light lerp toward day or night look (all players)
   const night = phase==="night";
   const k = clamp(night ? 1-clockT/NIGHT_LEN*0 : 0, 0,1); // simple: full night vs full day
   const t = night?1:0;
@@ -1457,10 +1587,9 @@ function fireRay(origin,dir,range,dmg,friendly){
     } else if(hitBot && friendly){
       const head = h.point.y > hitBot.y+1.7;
       const d = head? dmg*2 : dmg;
-      hitBot.hp-=d; hitBot.hitFlash=4; drawHB(hitBot);
-      showHit(head);
-      burst(h.point.x,h.point.y,h.point.z,0xff8080,4);
-      if(hitBot.hp<=0) killBot(hitBot,false);
+      showHit(head); burst(h.point.x,h.point.y,h.point.z,0xff8080,4);
+      if(net.isHost()){ hitBot.hp-=d; hitBot.hitFlash=4; drawHB(hitBot); if(hitBot.hp<=0) killBot(hitBot,false); }
+      else { net.send({t:"zhit", nid:hitBot.nid, dmg:d}); hitBot.hitFlash=4; }  // host is authoritative
     } else {
       // structure?
       let st=null; obj=h.object;
@@ -1473,11 +1602,12 @@ function fireRay(origin,dir,range,dmg,friendly){
   tracer(origin,end,friendly?0xfff2b0:0xff6a6a);
 }
 
-function destroyStructure(s){
+function destroyStructure(s, fromNet){
   burst(s.mesh.position.x,s.mesh.position.y,s.mesh.position.z, s.kind==="turret"?0x556074:0xc9a76a, s.kind==="turret"?20:12);
   dynGroup.remove(s.mesh);
   structures=structures.filter(x=>x!==s);
   if(s.kind==="turret") turrets=turrets.filter(x=>x!==s);
+  if(!fromNet && s.key) net.send({t:"destroy", key:s.key});
 }
 
 // Turret AI: auto-target nearest bot in range with line of sight, then fire.
@@ -1947,7 +2077,7 @@ function update(dt){
 
   animWorld(dt);   // flags waving + helicopter
 
-  if(player.skydiving){ updateSkydive(dt); updateEnemyHelis(dt); drawMini(); return; }
+  if(player.skydiving){ updateSkydive(dt); updateEnemyHelis(dt); net.tick(dt); drawMini(); return; }
 
   // ---- Player control (on foot, unless driving) ----
   if(player.vehicle){ updateVehicle(dt); }
@@ -2040,7 +2170,8 @@ function update(dt){
   }
 
   // ---- Zombies (melee: chase player, smash walls in the way, spikes hurt them) ----
-  for(const b of bots){
+  // Only the host simulates zombies; clients render them from host snapshots.
+  if(net.isHost()) for(const b of bots){
     if(!b.alive) continue;
     if(b.hitFlash>0){ b.hitFlash-=dt*60; }
     b.atkT-=dt; b.wobble+=dt*6;
@@ -2095,6 +2226,9 @@ function update(dt){
   for(const t of torches){ const f=0.8+Math.sin(performance.now()*0.02+t.phase)*0.25+Math.random()*0.1;
     t.light.intensity=f*1.6; t.flame.scale.y=0.8+f*0.4; }
 
+  // ---- Online co-op sync ----
+  net.tick(dt);
+
   // ---- Turrets, enemy helis, rockets ----
   updateTurrets(dt);
   updateEnemyHelis(dt);
@@ -2143,6 +2277,7 @@ function startGame(){
   player.pitch=-0.55;                                     // look down
 
   initCycle();                         // day/night: night comes after 5 min
+  if(net.online && !net.ws) net.connect();   // join the co-op room
   spawnChests(); spawnCars(); spawnEnemyHelis(3);   // zombies spawn at night, not now
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
 
@@ -2171,6 +2306,15 @@ function endGame(victory){
   setTimeout(()=>end.classList.remove("hidden"),600);
 }
 
+// Online room UI: joining reloads the page with ?room= so the world seed matches.
+(function(){
+  const inp=document.getElementById("roomInput"), btn=document.getElementById("onlineBtn"), now=document.getElementById("onlineNow");
+  if(ONLINE){ now.textContent="✅ Ти в кімнаті \""+ROOM+"\". Тисни «Почати виживання». (Вийти онлайн — прибери ?room= з адреси.)"; if(inp) inp.value=ROOM; }
+  if(btn) btn.addEventListener("click",()=>{
+    const code=(inp.value||"").trim(); if(!code){ now.textContent="Введи код кімнати."; return; }
+    const u=new URL(location.href); u.searchParams.set("room",code); location.href=u.toString();
+  });
+})();
 document.getElementById("startBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
 document.getElementById("againBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
 
