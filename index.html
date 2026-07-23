@@ -121,9 +121,10 @@
       <b>WASD</b><span>Рух · <b>Shift</b> біг · <b>Space</b> стрибок</span>
       <b>Миша</b><span>Огляд · ЛКМ — стріляти / будувати</span>
       <b>B</b><span>Перемкнути режим Бій / Будівництво</span>
-      <b>1–7</b><span>Бій: 1-5 зброя, 6 кірка, 7 сокира</span>
+      <b>1–8</b><span>Бій: 1-5 зброя, 6 кірка, 7 сокира, 8 базука 🚀</span>
       <b>Буд.</b><span>1 стіна · 2 двері · 3 вікно · 4 підлога · 5 драбина · 6 турель</span>
       <b>U</b><span>Апгрейд дерев'яної деталі каменем 🪨 (міцніше)</span>
+      <b>🚁</b><span>Збий <b>ворожий вертоліт</b> у небі — з нього випаде <b>базука</b>!</span>
       <b>F</b><span>Сісти / вийти з <b>машини</b> 🚗 · <b>R</b> перезарядка</span>
       <b>E</b><span>Скриня · сокирою бий дерева (🪵), кіркою — каміння (🪨)</span>
     </div>
@@ -464,6 +465,130 @@ function makeHeli(){
 let heli=null, heliT=0;
 
 // ===================================================================
+//  Enemy helicopters (fly the sky, shoot them down for a BAZOOKA)
+// ===================================================================
+function makeEnemyHeli(){
+  const g=new THREE.Group();
+  const dark=new THREE.MeshStandardMaterial({color:0x3b2a2a,roughness:.5,metalness:.5});
+  const body=new THREE.Mesh(new THREE.SphereGeometry(2.4,14,12),dark); body.scale.set(1,0.9,1.9); body.castShadow=true; g.add(body);
+  const glass=new THREE.Mesh(new THREE.SphereGeometry(1.6,12,10),
+    new THREE.MeshStandardMaterial({color:0xff6a6a,transparent:true,opacity:.5,metalness:.3}));
+  glass.scale.set(1,0.9,1.2); glass.position.set(0,0.2,2.2); g.add(glass);
+  const tail=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.6,5.2),dark); tail.position.set(0,0.4,-4.6); g.add(tail);
+  const fin=new THREE.Mesh(new THREE.BoxGeometry(0.3,2,1),dark); fin.position.set(0,1.2,-6.8); g.add(fin);
+  const skid=new THREE.MeshStandardMaterial({color:0x1a1f28});
+  for(const s of [-1.5,1.5]){ const m=new THREE.Mesh(new THREE.BoxGeometry(0.25,0.25,5),skid); m.position.set(s,-2.1,0); g.add(m); }
+  const bl=new THREE.MeshStandardMaterial({color:0x11151c});
+  const rotor=new THREE.Group();
+  for(let i=0;i<4;i++){ const blade=new THREE.Mesh(new THREE.BoxGeometry(15,0.14,0.8),bl); blade.rotation.y=i*Math.PI/2; rotor.add(blade); }
+  rotor.position.y=2.4; g.add(rotor);
+  const trotor=new THREE.Group(); const tb=new THREE.Mesh(new THREE.BoxGeometry(0.1,2.6,0.3),bl); trotor.add(tb); trotor.position.set(0.4,0.4,-7); g.add(trotor);
+  g.userData={rotor,trotor};
+  return g;
+}
+function spawnEnemyHelis(n){
+  for(let i=0;i<n;i++){
+    const mesh=makeEnemyHeli(); dynGroup.add(mesh);
+    const ang=rand(0,Math.PI*2), r=rand(70,170);
+    const h={ mesh, x:Math.cos(ang)*r, z:Math.sin(ang)*r, y:rand(42,66),
+      dir:rand(0,Math.PI*2), turn:rand(-0.25,0.25), speed:rand(9,15),
+      hp:260, maxHp:260, alive:true };
+    mesh.position.set(h.x,h.y,h.z);
+    enemyHelis.push(h);
+  }
+}
+function updateEnemyHelis(dt){
+  for(const h of enemyHelis){ if(!h.alive) continue;
+    h.dir += h.turn*dt;
+    h.x += Math.cos(h.dir)*h.speed*dt;
+    h.z += Math.sin(h.dir)*h.speed*dt;
+    if(Math.abs(h.x)>WORLD-30||Math.abs(h.z)>WORLD-30){ h.dir += Math.PI; h.turn=rand(-0.25,0.25); }
+    h.x=clamp(h.x,-WORLD+20,WORLD-20); h.z=clamp(h.z,-WORLD+20,WORLD-20);
+    h.mesh.position.set(h.x,h.y,h.z);
+    h.mesh.rotation.y=-h.dir+Math.PI/2;
+    h.mesh.userData.rotor.rotation.y+=dt*32;
+    h.mesh.userData.trotor.rotation.x+=dt*42;
+  }
+}
+function damageHeli(h, dmg, px,py,pz){
+  if(!h.alive) return;
+  h.hp-=dmg; burst(px,py,pz,0xffaa44,4);
+  if(h.hp<=0) destroyEnemyHeli(h);
+}
+function destroyEnemyHeli(h){
+  h.alive=false;
+  const x=h.mesh.position.x, y=h.mesh.position.y, z=h.mesh.position.z;
+  burst(x,y,z,0xff6622,30); burst(x,y,z,0x333333,20);
+  playExplosion(0.5);
+  const light=new THREE.PointLight(0xff7722,4,40); light.position.set(x,y,z); dynGroup.add(light);
+  setTimeout(()=>dynGroup.remove(light),150);
+  dynGroup.remove(h.mesh);
+  dropFallingBazooka(x,z,y);
+  toast("Вертоліт збито! 🚁 Впала БАЗУКА 🚀");
+  killFeed("Ти","Базука","вертоліт");
+}
+function dropFallingBazooka(x,z,fromY){
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.26,1.5,10),
+    new THREE.MeshStandardMaterial({color:0xff5522,emissive:0x551100,emissiveIntensity:.5,metalness:.4}));
+  m.rotation.z=Math.PI/2; m.position.set(x,(fromY||30),z); m.castShadow=true; dynGroup.add(m);
+  loots.push({x,z,type:"bazooka",mesh:m,bob:rand(0,6),y:(fromY||30),fall:true});
+}
+
+// ===================================================================
+//  Bazooka rockets
+// ===================================================================
+function fireRocket(){
+  camera.getWorldDirection(tmpD);
+  const origin=camera.getWorldPosition(new THREE.Vector3());
+  const dir=tmpD.clone().normalize();
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.9,8),
+    new THREE.MeshStandardMaterial({color:0xffcc44,emissive:0xff6600,emissiveIntensity:.9}));
+  const start=origin.clone().add(dir.clone().multiplyScalar(1.4));
+  m.position.copy(start);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir);
+  const light=new THREE.PointLight(0xff7722,1.4,10); m.add(light);
+  dynGroup.add(m);
+  rockets.push({mesh:m, pos:start.clone(), dir, speed:60, life:6});
+}
+function updateRockets(dt){
+  for(let i=rockets.length-1;i>=0;i--){
+    const r=rockets[i]; r.life-=dt;
+    const stepLen=r.speed*dt;
+    const next=r.pos.clone().add(r.dir.clone().multiplyScalar(stepLen));
+    // collision along the step
+    raycaster.set(r.pos, r.dir); raycaster.far=stepLen+0.5;
+    const targets=bulletMeshes.slice();
+    for(const s of structures) targets.push(s.mesh);
+    for(const b of bots) if(b.alive) targets.push(b.mesh);
+    for(const h of enemyHelis) if(h.alive) targets.push(h.mesh);
+    const hits=raycaster.intersectObjects(targets,true);
+    let boom=null;
+    if(hits.length) boom=hits[0].point.clone();
+    else if(next.y<=0.2){ boom=next.clone(); boom.y=0.2; }
+    else if(r.life<=0 || Math.abs(next.x)>WORLD||Math.abs(next.z)>WORLD) boom=next.clone();
+    // smoke trail
+    if(Math.random()<0.7) burst(r.pos.x,r.pos.y,r.pos.z,0x999999,1);
+    r.pos.copy(next); r.mesh.position.copy(next);
+    if(boom){ explode(boom); dynGroup.remove(r.mesh); rockets.splice(i,1); }
+  }
+}
+function explode(pos){
+  burst(pos.x,pos.y,pos.z,0xff7722,26); burst(pos.x,pos.y,pos.z,0x333333,14);
+  const light=new THREE.PointLight(0xff7722,3,30); light.position.copy(pos); dynGroup.add(light);
+  setTimeout(()=>dynGroup.remove(light),120);
+  playExplosion(0.5);
+  const R=WEAPONS.bazooka.splash;
+  for(const b of bots){ if(!b.alive) continue;
+    const d=Math.hypot(b.x-pos.x,b.z-pos.z); if(d<R && Math.abs((b.y+1)-pos.y)<R+2){
+      b.hp-=160*(1-d/R); b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } }
+  for(const s of structures.slice()){ const sp=s.mesh.position;
+    if(Math.hypot(sp.x-pos.x,sp.z-pos.z)<R+1 && Math.abs(sp.y-pos.y)<R+3){ s.hp-=250; if(s.hp<=0) destroyStructure(s); } }
+  for(const h of enemyHelis){ if(h.alive && h.mesh.position.distanceTo(pos)<R+4) damageHeli(h,220,pos.x,pos.y,pos.z); }
+  if(player.alive){ const d=Math.hypot(player.pos.x-pos.x,player.pos.z-pos.z);
+    if(d<R && Math.abs(player.pos.y-pos.y)<R){ damagePlayer(55*(1-d/R), false); } }
+}
+
+// ===================================================================
 //  Weapons
 // ===================================================================
 const WEAPONS = {
@@ -474,9 +599,11 @@ const WEAPONS = {
   sniper:  {name:"Снайперка", key:"5", dmg:120,rof:1400,mag:5,  reload:2600, spread:0.002, range:400, pellets:1, auto:false, color:0x9d7dff, size:[0.16,0.24,1.3], scope:true},
   pickaxe: {name:"Кірка",     key:"6", dmg:40, rof:450, range:6, melee:true, harvest:"stone", color:0x9fb4c8},
   axe:     {name:"Сокира",    key:"7", dmg:40, rof:450, range:6, melee:true, harvest:"wood",  color:0xcaa16a},
+  bazooka: {name:"Базука",    key:"8", dmg:150,rof:1100,mag:1,  reload:2400, spread:0.004, range:300, pellets:1, rocket:true, splash:9, color:0xff5522, size:[0.3,0.32,1.5]},
 };
 const WORDER = ["pistol","smg","ar","shotgun","sniper"];      // guns (slots 1-5)
-const ALLSEL = ["pistol","smg","ar","shotgun","sniper","pickaxe","axe"]; // selectable 1-7
+const GUNS   = ["pistol","smg","ar","shotgun","sniper","bazooka"];  // for wheel cycling
+const ALLSEL = ["pistol","smg","ar","shotgun","sniper","pickaxe","axe","bazooka"]; // selectable 1-8
 
 // ===================================================================
 //  Dynamic groups (reset each match)
@@ -490,6 +617,8 @@ let loots = [];
 let particles = [];
 let turrets = [];      // placed auto-turrets
 let cars = [];         // drivable vehicles
+let rockets = [];      // bazooka rockets in flight
+let enemyHelis = [];   // shootable helicopters patrolling the sky
 
 let player, storm, state="menu", running=false, lastTime=0;
 let killCount=0, buildMode=false, buildPiece="wall";
@@ -500,7 +629,7 @@ let ghost=null;
 
 function clearGroup(){
   while(dynGroup.children.length) dynGroup.remove(dynGroup.children[0]);
-  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[];
+  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[];
 }
 
 // ===================================================================
@@ -924,6 +1053,11 @@ function pickupLoot(l){
       else { player.inv[gain].reserve+=WEAPONS[gain].mag*2; toast("+Патрони"); }
       buildInvBar(); break;
     }
+    case "bazooka": {
+      if(!player.inv.bazooka){ player.inv.bazooka={ammo:1,reserve:4}; toast("🚀 БАЗУКА! Тисни 8"); }
+      else { player.inv.bazooka.reserve+=3; toast("+3 ракети 🚀"); }
+      selectWeapon("bazooka"); buildInvBar(); break;
+    }
   }
   updateHUD();
 }
@@ -1052,7 +1186,19 @@ function getNoise(){
   _noiseBuf=b; return b;
 }
 const SHOT={ pistol:[0.10,1400,0.22], smg:[0.06,1750,0.15], ar:[0.09,1300,0.19],
-  shotgun:[0.22,780,0.34], sniper:[0.30,560,0.42], melee:[0.14,320,0.22], turret:[0.07,1550,0.10] };
+  shotgun:[0.22,780,0.34], sniper:[0.30,560,0.42], melee:[0.14,320,0.22], turret:[0.07,1550,0.10],
+  bazooka:[0.35,300,0.4] };
+function playExplosion(vol){
+  if(!audioCtx) return; const t=audioCtx.currentTime, v=vol||0.5;
+  const src=audioCtx.createBufferSource(); src.buffer=getNoise();
+  const lp=audioCtx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.setValueAtTime(1200,t); lp.frequency.exponentialRampToValueAtTime(120,t+0.5);
+  const g=audioCtx.createGain(); g.gain.setValueAtTime(v,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.6);
+  src.connect(lp); lp.connect(g); g.connect(audioCtx.destination); src.start(t); src.stop(t+0.65);
+  const o=audioCtx.createOscillator(), og=audioCtx.createGain(); o.type="sine";
+  o.frequency.setValueAtTime(90,t); o.frequency.exponentialRampToValueAtTime(35,t+0.5);
+  og.gain.setValueAtTime(v,t); og.gain.exponentialRampToValueAtTime(0.001,t+0.6);
+  o.connect(og); og.connect(audioCtx.destination); o.start(t); o.stop(t+0.65);
+}
 function playShot(type, vol){
   if(!audioCtx) return;
   const s=SHOT[type]||SHOT.pistol, t=audioCtx.currentTime;
@@ -1095,15 +1241,18 @@ function shoot(){
   // muzzle flash + recoil
   if(muzzle){ muzzle.intensity=3; setTimeout(()=>{if(muzzle)muzzle.intensity=0;},50); }
   if(gunMesh) gunMesh.position.z=-0.78; // kick
-  player.pitch=clamp(player.pitch+rand(0.004,0.012),-1.4,1.4);
+  player.pitch=clamp(player.pitch+rand(0.004, w.rocket?0.03:0.012),-1.4,1.4);
 
-  camera.getWorldDirection(tmpD);
-  const origin=camera.getWorldPosition(new THREE.Vector3());
-  for(let p=0;p<w.pellets;p++){
-    const dir=tmpD.clone();
-    dir.x+=rand(-w.spread,w.spread); dir.y+=rand(-w.spread,w.spread); dir.z+=rand(-w.spread,w.spread);
-    dir.normalize();
-    fireRay(origin,dir,w.range,w.dmg,true);
+  if(w.rocket){ fireRocket(); }
+  else {
+    camera.getWorldDirection(tmpD);
+    const origin=camera.getWorldPosition(new THREE.Vector3());
+    for(let p=0;p<w.pellets;p++){
+      const dir=tmpD.clone();
+      dir.x+=rand(-w.spread,w.spread); dir.y+=rand(-w.spread,w.spread); dir.z+=rand(-w.spread,w.spread);
+      dir.normalize();
+      fireRay(origin,dir,w.range,w.dmg,true);
+    }
   }
   if(inv.ammo<=0) startReload();
   updateHUD();
@@ -1159,19 +1308,26 @@ function removeHarvestable(mesh){
 
 function fireRay(origin,dir,range,dmg,friendly){
   raycaster.set(origin,dir); raycaster.far=range;
-  // targets: static world + structures + bots
+  // targets: static world + structures + bots + enemy helis
   const targets=bulletMeshes.slice();
   for(const s of structures) targets.push(s.mesh);
   const botHit=[];
   for(const b of bots){ if(b.alive){ targets.push(b.mesh); botHit.push(b);} }
+  const heliHit=[];
+  for(const h of enemyHelis){ if(h.alive){ targets.push(h.mesh); heliHit.push(h);} }
   const hits=raycaster.intersectObjects(targets, true);
   let end=origin.clone().add(dir.clone().multiplyScalar(range));
   if(hits.length){
     const h=hits[0]; end=h.point.clone();
+    // enemy heli?
+    let hitHeli=null, ho=h.object;
+    while(ho){ for(const eh of heliHit){ if(eh.mesh===ho){hitHeli=eh;break;} } if(hitHeli)break; ho=ho.parent; }
     // which bot?
     let hitBot=null, obj=h.object;
     while(obj){ for(const b of botHit){ if(b.mesh===obj){hitBot=b;break;} } if(hitBot)break; obj=obj.parent; }
-    if(hitBot && friendly){
+    if(hitHeli && friendly){
+      damageHeli(hitHeli, dmg, h.point.x,h.point.y,h.point.z); showHit(false);
+    } else if(hitBot && friendly){
       const head = h.point.y > hitBot.y+1.7;
       const d = head? dmg*2 : dmg;
       hitBot.hp-=d; hitBot.hitFlash=4; drawHB(hitBot);
@@ -1456,7 +1612,7 @@ addEventListener("keydown",e=>{
   else if(c==="KeyF"){ toggleVehicle(); }
   else if(c==="KeyU"){ if(buildMode) upgradeAimed(); }
   else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
-  else if(/^Digit[1-7]$/.test(c)){
+  else if(/^Digit[1-8]$/.test(c)){
     const n=c.slice(5);
     if(buildMode){ const pc={1:"wall",2:"door",3:"window",4:"floor",5:"ladder",6:"turret"}[n];
       if(pc){ buildPiece=pc; buildInvBar(); updateGhost(); } }
@@ -1485,8 +1641,8 @@ addEventListener("mousemove",e=>{
 });
 addEventListener("wheel",e=>{
   if(!running||buildMode) return;
-  const owned=WORDER.filter(w=>player.inv[w]); if(!owned.length)return;
-  let i=owned.indexOf(player.cur);
+  const owned=GUNS.filter(w=>player.inv[w]); if(!owned.length)return;
+  let i=owned.indexOf(player.cur); if(i<0) i=0;
   i=(i+(e.deltaY>0?1:-1)+owned.length)%owned.length;
   selectWeapon(owned[i]);
 });
@@ -1563,6 +1719,9 @@ function drawMini(){
   // bots
   miniCtx.fillStyle="#ff6b7d";
   for(const b of bots){ if(b.alive) miniCtx.fillRect(toX(b.x)-1,toZ(b.z)-1,2,2); }
+  // enemy helis (orange)
+  miniCtx.fillStyle="#ff9d2f";
+  for(const h of enemyHelis){ if(h.alive){ miniCtx.fillRect(toX(h.x)-2,toZ(h.z)-2,4,4); } }
   // player
   miniCtx.fillStyle="#22e3ff";
   miniCtx.beginPath(); miniCtx.arc(toX(player.pos.x),toZ(player.pos.z),3,0,7); miniCtx.fill();
@@ -1665,7 +1824,7 @@ function update(dt){
 
   animWorld(dt);   // flags waving + helicopter
 
-  if(player.skydiving){ updateSkydive(dt); updateStorm(dt); drawMini(); return; }
+  if(player.skydiving){ updateSkydive(dt); updateStorm(dt); updateEnemyHelis(dt); drawMini(); return; }
 
   // ---- Player control (on foot, unless driving) ----
   if(player.vehicle){ updateVehicle(dt); }
@@ -1747,8 +1906,14 @@ function update(dt){
   for(const c of chests){ if(!c.opened){ c.bob+=dt*3; c.lid.position.y=1.0+Math.sin(c.bob)*0.03; } }
   for(let i=loots.length-1;i>=0;i--){
     const l=loots[i]; l.bob+=dt*3;
-    l.mesh.position.y=1+Math.sin(l.bob)*0.15; l.mesh.rotation.y+=dt*2;
-    if(Math.hypot(player.pos.x-l.x,player.pos.z-l.z)<1.6){ pickupLoot(l); dynGroup.remove(l.mesh); loots.splice(i,1); }
+    if(l.fall){
+      l.y-=22*dt;                                   // parachute-less drop from the sky
+      if(l.y<=1){ l.y=1; l.fall=false; }
+      l.mesh.position.set(l.x,l.y,l.z); l.mesh.rotation.z=Math.PI/2; l.mesh.rotation.y+=dt*2;
+    } else {
+      l.mesh.position.y=1+Math.sin(l.bob)*0.15; l.mesh.rotation.y+=dt*2;
+    }
+    if(!l.fall && Math.hypot(player.pos.x-l.x,player.pos.z-l.z)<1.6){ pickupLoot(l); dynGroup.remove(l.mesh); loots.splice(i,1); }
   }
 
   // ---- Bots ----
@@ -1821,9 +1986,10 @@ function update(dt){
   // ---- Storm ----
   updateStorm(dt);
 
-  // ---- Turrets + idle car wheels ----
+  // ---- Turrets, enemy helis, rockets ----
   updateTurrets(dt);
-  for(const car of cars){ if(car!==player.vehicle) for(const w of car.wheels) w.rotation.x+=0; }
+  updateEnemyHelis(dt);
+  updateRockets(dt);
 
   // sun follows player (shadow coverage)
   sun.position.set(player.pos.x+120, 220, player.pos.z+90);
@@ -1872,7 +2038,7 @@ function startGame(){
   player.pitch=-0.55;                                     // look down
 
   storm=makeStorm();
-  spawnBots(); spawnChests(); spawnCars();
+  spawnBots(); spawnChests(); spawnCars(); spawnEnemyHelis(4);
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
 
   // helicopter drops you off

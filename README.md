@@ -63,6 +63,10 @@ Every match starts with a **helicopter drop**: you skydive from ~130m, free-fall
 
 > **Keyboard layout note:** movement reads *physical* keys (`e.code`), so WASD works on any layout — including Ukrainian/Cyrillic. (Earlier it broke because the browser reported "ц" instead of "w".)
 
+## 🚁 Enemy helicopters & the Bazooka
+
+Four **enemy helicopters** patrol the sky each match (orange blips on the minimap). Shoot one down — it takes sustained fire — and it **drops a Bazooka 🚀** that parachutes... well, plummets to the ground. Pick it up (slot **8**) and fire rockets that fly out and **explode on impact**, dealing splash damage to enemies, structures, and other helis. Mind the blast radius — it can hurt you too.
+
 ## 🌪️ Battle royale systems
 
 - **Shrinking Storm** — a purple zone that closes in over multiple phases and damages anyone caught outside.
