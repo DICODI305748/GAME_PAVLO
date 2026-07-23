@@ -765,20 +765,21 @@ function placeStructure(){
   dynGroup.add(mesh); mesh.updateMatrixWorld();
   const s={mesh, hp:150, maxHp:150, kind:p.kind, wood:true, upgraded:false, ...p};
   const alongX = Math.abs(Math.sin(p.rot))<0.5;   // unrotated piece spans X, thin in Z
+  const HT=WALL_T/2;                               // collider matches the wall exactly: GRID wide × WALL_T thick
   const wallCol=()=> alongX
-    ? {minx:p.x-GRID/2,maxx:p.x+GRID/2,minz:p.z-WALL_T,maxz:p.z+WALL_T,top:p.y+GRID/2}
-    : {minx:p.x-WALL_T,maxx:p.x+WALL_T,minz:p.z-GRID/2,maxz:p.z+GRID/2,top:p.y+GRID/2};
+    ? {minx:p.x-GRID/2,maxx:p.x+GRID/2,minz:p.z-HT,maxz:p.z+HT,top:p.y+GRID/2}
+    : {minx:p.x-HT,maxx:p.x+HT,minz:p.z-GRID/2,maxz:p.z+GRID/2,top:p.y+GRID/2};
   if(p.kind==="wall" || p.kind==="window"){
     s.col=wallCol();                              // window has a sill -> blocks walking
   } else if(p.kind==="door"){
     // two side posts with a walkable gap between them
     const off=GRID/2-0.6;
     if(alongX){
-      s.cols=[ {minx:p.x-off-0.6,maxx:p.x-off+0.6,minz:p.z-WALL_T,maxz:p.z+WALL_T},
-               {minx:p.x+off-0.6,maxx:p.x+off+0.6,minz:p.z-WALL_T,maxz:p.z+WALL_T} ];
+      s.cols=[ {minx:p.x-off-0.6,maxx:p.x-off+0.6,minz:p.z-HT,maxz:p.z+HT},
+               {minx:p.x+off-0.6,maxx:p.x+off+0.6,minz:p.z-HT,maxz:p.z+HT} ];
     } else {
-      s.cols=[ {minx:p.x-WALL_T,maxx:p.x+WALL_T,minz:p.z-off-0.6,maxz:p.z-off+0.6},
-               {minx:p.x-WALL_T,maxx:p.x+WALL_T,minz:p.z+off-0.6,maxz:p.z+off+0.6} ];
+      s.cols=[ {minx:p.x-HT,maxx:p.x+HT,minz:p.z-off-0.6,maxz:p.z-off+0.6},
+               {minx:p.x-HT,maxx:p.x+HT,minz:p.z+off-0.6,maxz:p.z+off+0.6} ];
     }
   } else if(p.kind==="floor"){
     s.floorTop=p.y+WALL_T/2; s.fminx=p.x-GRID/2; s.fmaxx=p.x+GRID/2; s.fminz=p.z-GRID/2; s.fmaxz=p.z+GRID/2;
