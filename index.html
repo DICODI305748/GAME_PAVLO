@@ -68,6 +68,14 @@
     box-shadow:0 6px 18px rgba(34,227,255,.45);transition:transform .12s;display:flex;align-items:center;justify-content:center}
   .navbtn:hover{transform:scale(1.1)} .navbtn:active{transform:scale(.94)}
   #navUp{top:calc(50% - 62px)} #navDown{top:calc(50% + 8px)}
+  /* crafting bench UI */
+  #craftGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;max-width:620px;width:90%;margin-top:8px}
+  .craftItem{background:rgba(20,28,60,.75);border:1px solid rgba(123,47,247,.5);border-radius:12px;padding:12px 14px;text-align:center}
+  .craftItem.cant{opacity:.5}
+  .craftItem .cname{color:var(--gold);font-weight:bold;letter-spacing:1px;margin-bottom:4px}
+  .craftItem .ccost{color:#b9c6f0;font-size:13px;margin-bottom:8px}
+  .craftItem .cbtn{font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,var(--cyan),var(--gold));border:none;border-radius:8px;padding:7px 14px;cursor:pointer;width:100%}
+  .craftItem.cant .cbtn{filter:grayscale(1)}
   h1{font-size:clamp(34px,7vw,72px);letter-spacing:3px;text-transform:uppercase;
     background:linear-gradient(90deg,var(--cyan),var(--purple),var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:4px}
   .tag{color:#9fb0e0;letter-spacing:6px;font-size:12px;text-transform:uppercase;margin-bottom:22px}
@@ -143,9 +151,10 @@
       <b>Миша</b><span>Огляд · ЛКМ — стріляти / будувати</span>
       <b>B</b><span>Перемкнути режим Бій / Будівництво</span>
       <b>1–8</b><span>Бій: 1-5 зброя, 6 кірка, 7 сокира, 8 базука 🚀</span>
-      <b>Буд.</b><span>1 стіна · 2 двері · 3 вікно · 4 підлога · 5 драбина · 6 турель · 7 факел 🔥 · 8 шипи 🔩</span>
+      <b>Буд.</b><span>1 стіна · 2 двері · 3 вікно · 4 підлога · 5 драбина · 6 турель · 7 факел · 8 шипи · 9 стіл крафта 🔨</span>
       <b>U</b><span>Апгрейд: дерево→камінь (🪨), камінь→метал (🔩)</span>
-      <b>E</b><span>Скриня · сокирою бий дерева (🪵), кіркою — каміння (🪨)</span>
+      <b>🔨</b><span>Стіл крафта став на <b>металеву підлогу</b> — там крафтиш усю зброю (старт без зброї!)</span>
+      <b>E</b><span>Скриня / стіл крафта · сокирою бий дерева (🪵), кіркою — каміння/руду (🪨🔩)</span>
       <b>F</b><span>Машина 🚗 · <b>R</b> перезарядка · збий вертоліт → базука 🚀</span>
     </div>
     <p style="margin-top:12px;color:#9fb0e0;font-size:13px">Натисни кнопку, потім клікни по екрану щоб захопити мишу. <b>Esc</b> — відпустити.</p>
@@ -185,6 +194,14 @@
   <div class="stats" id="endStats"></div>
   <div class="card"><p id="endFlavor"></p></div>
   <button class="play" id="againBtn">Ще раз</button>
+</div>
+
+<!-- Crafting bench -->
+<div class="overlay hidden" id="craftScreen">
+  <h1 style="font-size:clamp(28px,5vw,48px)">🔨 Стіл крафта</h1>
+  <div class="tag">Крафт зброї</div>
+  <div id="craftGrid"></div>
+  <button class="play" id="craftClose" style="margin-top:18px">Закрити (E / Esc)</button>
 </div>
 
 <div id="loading">ЗАВАНТАЖЕННЯ 3D РУШІЯ…</div>
@@ -710,6 +727,16 @@ const WEAPONS = {
 const WORDER = ["pistol","smg","ar","shotgun","sniper"];      // guns (slots 1-5)
 const GUNS   = ["pistol","smg","ar","shotgun","sniper","bazooka"];  // for wheel cycling
 const ALLSEL = ["pistol","smg","ar","shotgun","sniper","pickaxe","axe","bazooka"]; // selectable 1-8
+// Crafting recipes at the workbench — cost {wood 🪵, stone 🪨, metal 🔩}
+const CRAFT = {
+  pistol:  {w:20, s:0,  m:25},
+  smg:     {w:30, s:20, m:45},
+  ar:      {w:40, s:10, m:70},
+  shotgun: {w:35, s:25, m:40},
+  sniper:  {w:45, s:30, m:90},
+  bazooka: {w:60, s:60, m:120},
+};
+const BENCH_COST = {w:70, s:90, m:40};   // wood, stone, metal to build the bench
 
 // ===================================================================
 //  Dynamic groups (reset each match)
@@ -726,6 +753,7 @@ let cars = [];         // drivable vehicles
 let rockets = [];      // bazooka rockets in flight
 let torches = [];      // placed torches (light + flicker)
 let spikeTraps = [];   // placed spike traps
+let benches = [];      // crafting tables
 let enemyHelis = [];   // shootable helicopters patrolling the sky
 
 let player, storm, state="menu", running=false, lastTime=0;
@@ -839,7 +867,7 @@ let ghost=null;
 
 function clearGroup(){
   while(dynGroup.children.length) dynGroup.remove(dynGroup.children[0]);
-  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[]; torches=[]; spikeTraps=[];
+  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[]; torches=[]; spikeTraps=[]; benches=[];
   if(typeof net!=="undefined" && net.peers) net.peers.clear();   // avatars were in dynGroup
 }
 
@@ -853,10 +881,9 @@ function makePlayer(){
     yaw:0, pitch:0, onGround:true,
     hp:100, maxHp:100, shield:0, maxShield:100,
     mats:50, stone:0, metal:0, alive:true,   // wood 🪵 build · stone 🪨 & metal 🔩 upgrade
-    inv:{pistol:{ammo:12,reserve:60}, ar:{ammo:30,reserve:90},
-         pickaxe:{melee:true}, axe:{melee:true}}, // start loadout + tools always owned
+    inv:{pickaxe:{melee:true}, axe:{melee:true}}, // start with only tools — craft guns at the bench
     vehicle:null,
-    cur:"pistol", lastShot:0, reloading:false, reloadEnd:0,
+    cur:"axe", lastShot:0, reloading:false, reloadEnd:0,
     hitFlash:0,
   };
 }
@@ -965,6 +992,7 @@ function structGeom(kind){
   if(kind==="turret") return new THREE.CylinderGeometry(1.0,1.3,2.4,10);
   if(kind==="torch")  return new THREE.CylinderGeometry(0.12,0.12,2.4,6);
   if(kind==="spikes") return new THREE.BoxGeometry(GRID*0.9, 1.4, GRID*0.9);
+  if(kind==="bench")  return new THREE.BoxGeometry(3.4, 2.4, 1.9);
   if(kind==="ladder")return new THREE.BoxGeometry(1.7, GRID, 0.35);
   if(kind==="floor") return new THREE.BoxGeometry(GRID, WALL_T, GRID);
   return new THREE.BoxGeometry(GRID, GRID, WALL_T);   // wall/door/window ghost outline
@@ -989,6 +1017,22 @@ function makeSpikes(x,z){
   for(let i=0;i<9;i++){ const sp=new THREE.Mesh(new THREE.ConeGeometry(0.28,1.5,5),sm);
     sp.position.set(-2+ (i%3)*2 + wr(-0.4,0.4), 0.85, -2+Math.floor(i/3)*2 + wr(-0.4,0.4));
     sp.castShadow=true; g.add(sp); }
+  g.position.set(x,0,z);
+  return g;
+}
+// Crafting workbench (Last-Day-on-Earth-style станок) — craft all weapons here
+function makeBench(x,z){
+  const g=new THREE.Group();
+  const wood=MAT_WOOD.clone(), metal=MAT_METAL.clone();
+  const top=new THREE.Mesh(new THREE.BoxGeometry(3.4,0.35,1.9), wood); top.position.y=1.5; top.castShadow=top.receiveShadow=true; g.add(top);
+  const plate=new THREE.Mesh(new THREE.BoxGeometry(3.2,0.08,1.7), metal); plate.position.y=1.72; g.add(plate);
+  for(const [lx,lz] of [[-1.5,-0.75],[1.5,-0.75],[-1.5,0.75],[1.5,0.75]]){
+    const leg=new THREE.Mesh(new THREE.BoxGeometry(0.28,1.5,0.28),wood); leg.position.set(lx,0.75,lz); leg.castShadow=true; g.add(leg); }
+  const anvil=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.5,0.5), metal); anvil.position.set(-0.9,2.0,0); anvil.castShadow=true; g.add(anvil);
+  const vice=new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.3,0.5,8), metal); vice.position.set(0.9,2.0,0.2); g.add(vice);
+  const gunProp=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.2,0.9), new THREE.MeshStandardMaterial({color:0x22262f,metalness:.5,roughness:.5}));
+  gunProp.position.set(0.4,1.78,-0.4); gunProp.rotation.y=0.4; g.add(gunProp);
+  const lamp=new THREE.PointLight(0xffd27a,0.8,10,2); lamp.position.set(0,2.4,0); g.add(lamp);
   g.position.set(x,0,z);
   return g;
 }
@@ -1077,6 +1121,10 @@ function placement(){
     // the tile directly in front of you
     return {x:homeX+ex*GRID, y:baseY, z:homeZ+ez*GRID, rot:0, kind:"floor"};
   }
+  if(buildPiece==="bench"){
+    // sits on the tile you're standing on (must be a metal floor)
+    return {x:homeX, y:baseY, z:homeZ, rot:0, kind:"bench"};
+  }
   if(buildPiece==="turret"||buildPiece==="torch"||buildPiece==="spikes"){
     return {x:player.pos.x+fx*GRID*0.9, y:baseY, z:player.pos.z+fz*GRID*0.9, rot:0, kind:buildPiece};
   }
@@ -1102,7 +1150,10 @@ function updateGhost(){
   ghost.position.set(p.x,p.y,p.z);
   ghost.rotation.set(0,p.rot,0);
   if(p.kind==="turret") ghost.position.y=p.y+1.2;
-  const ok=player.mats>=pieceCost(p.kind);
+  if(p.kind==="bench") ghost.position.y=p.y+1.2;
+  let ok;
+  if(p.kind==="bench") ok = metalFloorAt(p.x,p.z,p.y) && player.mats>=BENCH_COST.w && player.stone>=BENCH_COST.s && player.metal>=BENCH_COST.m;
+  else ok=player.mats>=pieceCost(p.kind);
   ghost.material.color.setHex(ok?0x66ffcc:0xff6666);
 }
 
@@ -1156,6 +1207,11 @@ function spawnPiece(p, quiet){
     spikeTraps.push({mesh:m, x:p.x, z:p.z, y:p.y, r:GRID*0.5});
     if(!quiet){ playBlip(260,0.05); toast("Шипи 🔩"); } return;
   }
+  if(p.kind==="bench"){
+    const m=makeBench(p.x,p.z); m.position.y=p.y; dynGroup.add(m);
+    benches.push({mesh:m, x:p.x, z:p.z, y:p.y});
+    if(!quiet){ playBlip(360,0.06); toast("Стіл крафта 🔨 — підійди й тисни E"); } return;
+  }
   let mesh;
   if(p.kind==="ladder") mesh=makeLadderMesh();
   else mesh=makePieceMesh(p.kind);          // textured wall / door / window / floor
@@ -1187,8 +1243,25 @@ function spawnPiece(p, quiet){
   structures.push(s);
   return s;
 }
+// is there a METAL floor right under this spot? (bench must stand on iron floor)
+function metalFloorAt(x,z,y){
+  for(const s of structures){
+    if(s.kind==="floor" && s.tier==="metal" && x>=s.fminx&&x<=s.fmaxx&&z>=s.fminz&&z<=s.fmaxz && Math.abs(s.floorTop-y)<0.6) return true;
+  }
+  return false;
+}
 function placeStructure(){
   const p=placement();
+  if(p.kind==="bench"){
+    if(!metalFloorAt(p.x,p.z,p.y)){ toast("Стіл крафта ставиться лише на МЕТАЛЕВУ підлогу 🔩"); return; }
+    const c=BENCH_COST;
+    if(player.mats<c.w||player.stone<c.s||player.metal<c.m){
+      toast("Треба "+c.w+"🪵 "+c.s+"🪨 "+c.m+"🔩"); return; }
+    spawnPiece(p, false);
+    player.mats-=c.w; player.stone-=c.s; player.metal-=c.m; updateHUD();
+    net.send({t:"build", p:{kind:p.kind,x:p.x,y:p.y,z:p.z,rot:p.rot}});
+    return;
+  }
   const cost=pieceCost(p.kind);
   if(player.mats<cost){ toast("Треба "+cost+" 🪵 дерева"); return; }
   spawnPiece(p, false);
@@ -1311,7 +1384,7 @@ function openChest(c){
   burst(c.x,1.2,c.z,0xffd54a,20);
   dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "stone");   // every chest gives stone
   if(Math.random()<0.6) dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "metal");  // most chests give metal
-  const pool=["mat","stone","metal","metal","ammo","shield","heal","weapon"];  // metal weighted x2
+  const pool=["mat","stone","metal","metal","ammo","shield","heal"];  // no weapons — craft them at the bench
   for(let i=0;i<3;i++){
     const t=pool[Math.floor(rand(0,pool.length))];
     dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), t);
@@ -1839,8 +1912,7 @@ function killBot(b, silent){
   else if(r<0.54) dropLoot(b.x,b.z,"metal");
   else if(r<0.70) dropLoot(b.x,b.z,"ammo");
   else if(r<0.82) dropLoot(b.x,b.z,"shield");
-  else if(r<0.93) dropLoot(b.x,b.z,"heal");
-  else dropLoot(b.x,b.z,"weapon");
+  else dropLoot(b.x,b.z,"heal");
   updateHUD();
 }
 
@@ -1900,15 +1972,16 @@ addEventListener("keydown",e=>{
   keys[e.code]=true;
   if(!running) return;
   const c=e.code;
+  if(crafting){ if(c==="Escape"||c==="KeyE") closeCraft(); return; }   // craft menu open: freeze game keys
   if(c==="KeyB"){ if(!player.vehicle){ buildMode=!buildMode; updateModeTag(); } }
   else if(c==="KeyR"){ startReload(); }
-  else if(c==="KeyE"){ tryOpenChest(); }
+  else if(c==="KeyE"){ if(nearBench()) openCraft(); else tryOpenChest(); }
   else if(c==="KeyF"){ toggleVehicle(); }
   else if(c==="KeyU"){ if(buildMode) upgradeAimed(); }
   else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
-  else if(/^Digit[1-8]$/.test(c)){
+  else if(/^Digit[1-9]$/.test(c)){
     const n=c.slice(5);
-    if(buildMode){ const pc={1:"wall",2:"door",3:"window",4:"floor",5:"ladder",6:"turret",7:"torch",8:"spikes"}[n];
+    if(buildMode){ const pc={1:"wall",2:"door",3:"window",4:"floor",5:"ladder",6:"turret",7:"torch",8:"spikes",9:"bench"}[n];
       if(pc){ buildPiece=pc; buildInvBar(); updateGhost(); } }
     else { const wname=ALLSEL[parseInt(n)-1]; if(wname && player.inv[wname]){ selectWeapon(wname); } }
   }
@@ -1956,12 +2029,53 @@ function tryOpenChest(){
 }
 
 // ===================================================================
+//  Crafting bench UI
+// ===================================================================
+let crafting=false;
+function nearBench(){ for(const b of benches){ if(Math.hypot(player.pos.x-b.x,player.pos.z-b.z)<4 && Math.abs(player.pos.y-b.y)<3) return b; } return null; }
+const CRAFT_NAMES={pistol:"Пістолет",smg:"SMG",ar:"Автомат",shotgun:"Дробовик",sniper:"Снайперка",bazooka:"Базука"};
+function openCraft(){
+  crafting=true; mouseDown=false;
+  document.exitPointerLock && document.exitPointerLock();
+  buildCraftGrid();
+  document.getElementById("craftScreen").classList.remove("hidden");
+}
+function closeCraft(){
+  crafting=false;
+  document.getElementById("craftScreen").classList.add("hidden");
+  if(running) renderer.domElement.requestPointerLock();
+}
+function buildCraftGrid(){
+  const grid=document.getElementById("craftGrid"); grid.innerHTML="";
+  for(const key of Object.keys(CRAFT)){
+    const r=CRAFT[key], owned=!!player.inv[key];
+    const can = player.mats>=r.w && player.stone>=r.s && player.metal>=r.m;
+    const d=document.createElement("div"); d.className="craftItem"+(can?"":" cant");
+    d.innerHTML=`<div class="cname">${CRAFT_NAMES[key]}${owned?" ✅":""}</div>`+
+      `<div class="ccost">🪵${r.w} 🪨${r.s} 🔩${r.m}</div>`+
+      `<button class="cbtn">${owned?"Ще + патрони":"Скрафтити"}</button>`;
+    d.querySelector(".cbtn").addEventListener("click",()=>craftWeapon(key));
+    grid.appendChild(d);
+  }
+}
+function craftWeapon(key){
+  const r=CRAFT[key];
+  if(player.mats<r.w||player.stone<r.s||player.metal<r.m){ toast("Не вистачає ресурсів"); return; }
+  player.mats-=r.w; player.stone-=r.s; player.metal-=r.m;
+  const W=WEAPONS[key];
+  if(!player.inv[key]) player.inv[key]={ammo:W.mag, reserve:W.mag*(key==="bazooka"?4:3)};
+  else player.inv[key].reserve+=W.mag*2;
+  selectWeapon(key); playBlip(660,0.1); toast("Скрафтовано: "+W.name+"!");
+  buildCraftGrid(); buildInvBar(); updateHUD();
+}
+
+// ===================================================================
 //  HUD
 // ===================================================================
 function buildInvBar(){
   const bar=document.getElementById("invbar"); bar.innerHTML="";
   if(buildMode){
-    const pieces=[["wall","Стіна","1"],["door","Двері","2"],["window","Вікно","3"],["floor","Підлога","4"],["ladder","Драбина","5"],["turret","Турель","6"],["torch","Факел","7"],["spikes","Шипи","8"]];
+    const pieces=[["wall","Стіна","1"],["door","Двері","2"],["window","Вікно","3"],["floor","Підлога","4"],["ladder","Драбина","5"],["turret","Турель","6"],["torch","Факел","7"],["spikes","Шипи","8"],["bench","Стіл 🔨","9"]];
     for(const [id,label,key] of pieces){
       const d=document.createElement("div");
       d.className="slot"+(buildPiece===id?" active":"");
@@ -2128,6 +2242,7 @@ function update(dt){
   if(keys["KeyA"]||keys["ArrowLeft"]) mx-=1; if(keys["KeyD"]||keys["ArrowRight"]) mx+=1;
   // On a ladder, W/S climb instead of walking (until you reach the top).
   if(climbingBelowTop) mz=0;
+  if(crafting){ mx=0; mz=0; }   // frozen while the craft menu is open
   const yaw=player.yaw;
   // forward/right in world
   let wx=0,wz=0;
@@ -2375,6 +2490,7 @@ function endGame(victory){
 })();
 document.getElementById("startBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
 document.getElementById("againBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
+document.getElementById("craftClose").addEventListener("click",closeCraft);
 // floating button: reload for a fresh procedural world (drops the room -> new random seed)
 document.getElementById("fab").addEventListener("click",()=>{
   const u=new URL(location.href); u.searchParams.delete("room"); u.searchParams.set("_", Date.now());
