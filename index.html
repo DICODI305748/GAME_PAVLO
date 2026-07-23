@@ -309,6 +309,8 @@ function makeTree(x,z,r){
   trunk.userData.harvest="wood"; trunk.userData.hp=3; trunk.userData.rootGroup=g; trunk.userData.col=col;
 }
 const ROCK_MAT=new THREE.MeshStandardMaterial({color:0x8a8f9c,roughness:1,flatShading:true});
+const IRON_MAT=new THREE.MeshStandardMaterial({color:0x8a6a52,roughness:.7,metalness:.5,flatShading:true});
+const IRON_VEIN=new THREE.MeshStandardMaterial({color:0xd8a066,emissive:0x3a2410,emissiveIntensity:.4,metalness:.8,roughness:.4});
 function makeRock(x,z,s){
   const r=new THREE.Mesh(new THREE.DodecahedronGeometry(s,0), ROCK_MAT);
   r.position.set(x, s*0.5, z); r.castShadow=r.receiveShadow=true;
@@ -317,9 +319,20 @@ function makeRock(x,z,s){
   const col=addBoxCollider(x,z,s*0.7,s*0.7);
   r.userData.harvest="stone"; r.userData.hp=4; r.userData.rootGroup=r; r.userData.col=col;
 }
+// Iron ore — mine with the pickaxe for metal 🔩
+function makeIronOre(x,z,s){
+  const g=new THREE.Group();
+  const r=new THREE.Mesh(new THREE.DodecahedronGeometry(s,0), IRON_MAT);
+  r.rotation.set(wr(0,3),wr(0,3),wr(0,3)); r.castShadow=r.receiveShadow=true; g.add(r);
+  for(let i=0;i<4;i++){ const v=new THREE.Mesh(new THREE.IcosahedronGeometry(s*0.28,0),IRON_VEIN);
+    v.position.set(wr(-s*0.6,s*0.6),wr(-s*0.3,s*0.6),wr(-s*0.6,s*0.6)); g.add(v); }
+  g.position.set(x, s*0.5, z); staticGroup.add(g); r.updateMatrixWorld(); bulletMeshes.push(r);
+  const col=addBoxCollider(x,z,s*0.7,s*0.7);
+  r.userData.harvest="iron"; r.userData.hp=6; r.userData.rootGroup=g; r.userData.col=col;
+}
 // Procedural placement: a forest-density field (fbm noise) makes trees cluster
-// into woods and clearings; rocks gather in the low-density (rockier) patches.
-let treeCount=0, rockCount=0;
+// into woods and clearings; rocks & iron ore gather in the low-density (rockier) patches.
+let treeCount=0, rockCount=0, ironCount=0;
 const STEP=13, TREE_CAP=460;
 for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
   for(let gz=-WORLD+18; gz<WORLD-18; gz+=STEP){
@@ -328,8 +341,9 @@ for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
     if(Math.hypot(jx,jz)<16) continue;          // keep spawn/centre clear
     if(treeCount<TREE_CAP && wrand() < (n-0.46)*1.9){  // dense woods where n is high
       makeTree(jx,jz,wrand); treeCount++;
-    } else if(n<0.34 && wrand()<0.09){          // rock fields in sparse areas
-      makeRock(jx,jz, wr(2,6)); rockCount++;
+    } else if(n<0.34 && wrand()<0.12){          // rocky patches
+      if(wrand()<0.28){ makeIronOre(jx,jz, wr(2.5,5)); ironCount++; }  // some are iron ore
+      else { makeRock(jx,jz, wr(2,6)); rockCount++; }
     }
   }
 }
@@ -961,10 +975,11 @@ function makeTurret(x,z){
 }
 function placeTurret(p){
   const mesh=makeTurret(p.x,p.z);
+  mesh.position.y=p.y;                      // sit on the floor level you're standing on
   dynGroup.add(mesh); mesh.updateMatrixWorld();
   const t={mesh, pivot:mesh.userData.pivot, kind:"turret", hp:220, maxHp:220,
-    x:p.x, z:p.z, range:70, cool:0, aim:0,
-    col:{minx:p.x-1.2,maxx:p.x+1.2,minz:p.z-1.2,maxz:p.z+1.2,top:2.4}};
+    x:p.x, z:p.z, y:p.y, range:70, cool:0, aim:0,
+    col:{minx:p.x-1.2,maxx:p.x+1.2,minz:p.z-1.2,maxz:p.z+1.2,base:p.y,top:p.y+2.4}};
   structures.push(t);   // so bullets can damage/destroy it
   turrets.push(t);      // so it gets AI updates
   toast("Турель встановлено! 🔫");
@@ -976,13 +991,13 @@ function placeStructure(){
   if(player.mats<cost){ toast("Треба "+cost+" 🪵 дерева"); return; }
   if(p.kind==="turret"){ placeTurret(p); player.mats-=cost; updateHUD(); return; }
   if(p.kind==="torch"){
-    const m=makeTorch(p.x,p.z); dynGroup.add(m);
+    const m=makeTorch(p.x,p.z); m.position.y=p.y; dynGroup.add(m);
     torches.push({mesh:m, flame:m.userData.flame, light:m.userData.light, phase:rand(0,6.28)});
     player.mats-=cost; playBlip(300,0.05); updateHUD(); toast("Факел 🔥"); return;
   }
   if(p.kind==="spikes"){
-    const m=makeSpikes(p.x,p.z); dynGroup.add(m);
-    spikeTraps.push({mesh:m, x:p.x, z:p.z, r:GRID*0.5});
+    const m=makeSpikes(p.x,p.z); m.position.y=p.y; dynGroup.add(m);
+    spikeTraps.push({mesh:m, x:p.x, z:p.z, y:p.y, r:GRID*0.5});
     player.mats-=cost; playBlip(260,0.05); updateHUD(); toast("Шипи 🔩"); return;
   }
   let mesh;
@@ -1087,11 +1102,11 @@ function drawHB(bot){
 
 // Spawn a night wave of zombies from the map edges. Stats scale with night number.
 function spawnWave(night){
-  const count = Math.min(90, 8 + night*6);
+  const count = Math.min(140, 12 + night*8);            // bigger hordes each night
   const tints=[0x4f7a34,0x5a8a3a,0x6a9440,0x456b2e];
-  const hpBase = 45 + night*22;
-  const dmgBase = 7 + night*2.2;
-  const spd = 2.4 + Math.min(3.2, night*0.28);
+  const hpBase = 55 + night*32;                          // much tankier each night
+  const dmgBase = 11 + night*3.5;                        // hit harder
+  const spd = 2.6 + Math.min(4.0, night*0.35);           // faster each night
   for(let i=0;i<count;i++){
     const ang=rand(0,Math.PI*2), r=WORLD-8;
     const x=clamp(Math.cos(ang)*r,-WORLD+6,WORLD-6), z=clamp(Math.sin(ang)*r,-WORLD+6,WORLD-6);
@@ -1105,7 +1120,7 @@ function spawnWave(night){
     };
     drawHB(z0); bots.push(z0);
   }
-  toast("🌙 НІЧ "+night+" — "+count+" зомбі!");
+  toast("🌙 НІЧ "+night+" — орда з "+count+" зомбі суне на тебе!");
 }
 
 // ===================================================================
@@ -1131,7 +1146,8 @@ function openChest(c){
   c.opened=true; c.lid.rotation.x=-1.2; c.lid.position.z=-0.4;
   burst(c.x,1.2,c.z,0xffd54a,20);
   dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "stone");   // every chest gives stone
-  const pool=["mat","stone","ammo","shield","heal","weapon"];
+  if(Math.random()<0.6) dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "metal");  // most chests give metal
+  const pool=["mat","stone","metal","metal","ammo","shield","heal","weapon"];  // metal weighted x2
   for(let i=0;i<3;i++){
     const t=pool[Math.floor(rand(0,pool.length))];
     dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), t);
@@ -1390,12 +1406,15 @@ function meleeSwing(w, now){
   o=obj; let harv=null;
   while(o){ if(o.userData && o.userData.harvest){ harv=o; break; } o=o.parent; }
   if(harv){
-    const bonus = (w.harvest===harv.userData.harvest);
+    const hv=harv.userData.harvest;
+    // pickaxe (harvest:"stone") is the mining tool — bonus on stone AND iron
+    const bonus = (w.harvest===hv) || (w.harvest==="stone" && hv==="iron");
     const gain = bonus?16:9;
-    if(harv.userData.harvest==="wood"){ player.mats=Math.min(999,player.mats+gain); toast("+"+gain+" 🪵 дерево"); }
+    if(hv==="wood"){ player.mats=Math.min(999,player.mats+gain); toast("+"+gain+" 🪵 дерево"); }
+    else if(hv==="iron"){ const m=Math.round(gain*0.8); player.metal=Math.min(999,player.metal+m); toast("+"+m+" 🔩 метал"); }
     else { player.stone=Math.min(999,player.stone+gain); toast("+"+gain+" 🪨 камінь"); }
     harv.userData.hp -= bonus?2:1;
-    burst(h.point.x,h.point.y,h.point.z, harv.userData.harvest==="wood"?0xcaa16a:0x9fb4c8, 8);
+    burst(h.point.x,h.point.y,h.point.z, hv==="wood"?0xcaa16a:hv==="iron"?0xd8a066:0x9fb4c8, 8);
     if(harv.userData.hp<=0) removeHarvestable(harv);
     updateHUD(); return;
   }
@@ -1468,7 +1487,7 @@ function updateTurrets(dt){
     for(const b of bots){ if(!b.alive) continue;
       const d=Math.hypot(b.x-t.x,b.z-t.z); if(d<bd){ bd=d; best=b; } }
     if(!best){ continue; }
-    const tip=new THREE.Vector3(t.x, 3.0, t.z);
+    const tip=new THREE.Vector3(t.x, (t.y||0)+3.0, t.z);
     const aimA=Math.atan2(best.x-t.x, best.z-t.z);   // yaw so barrel (-Z) points at target
     t.pivot.rotation.y=aimA+Math.PI;
     t.cool-=dt;
@@ -2049,10 +2068,10 @@ function update(dt){
     b.mesh.position.set(b.x,b.y,b.z);
     b.mesh.rotation.y=-a+Math.PI/2 + Math.sin(b.wobble)*0.12;
     // attack the player when adjacent
-    if(dp<1.7 && player.alive && b.atkT<=0){ b.atkT=0.9; damagePlayer(b.dmg,false); }
-    // spike traps hurt zombies
-    for(const sp of spikeTraps){ if(Math.abs(b.x-sp.x)<sp.r && Math.abs(b.z-sp.z)<sp.r){
-      b.hp-=45*dt; b.hitFlash=3; if(b.hp<=0){ killBot(b,false); break; } } }
+    if(dp<1.9 && Math.abs(b.y-player.pos.y)<3 && player.alive && b.atkT<=0){ b.atkT=0.9; damagePlayer(b.dmg,false); }
+    // spike traps hurt zombies on the same level
+    for(const sp of spikeTraps){ if(Math.abs(b.x-sp.x)<sp.r && Math.abs(b.z-sp.z)<sp.r && Math.abs(b.y-(sp.y||0))<2){
+      b.hp-=55*dt; b.hitFlash=3; if(b.hp<=0){ killBot(b,false); break; } } }
   }
   if(bots.length>40 && Math.random()<0.05) bots=bots.filter(b=>b.alive);
 
