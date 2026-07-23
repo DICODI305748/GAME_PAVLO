@@ -22,7 +22,8 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 | **WASD** | Move · **Shift** sprint · **Space** jump |
 | **Mouse** | Look · **LMB** shoot / place build piece |
 | **B** | Toggle **Combat / Build** mode |
-| **1–7** | Combat: 1-5 guns, 6 pickaxe, 7 axe · Build: 1 wall, 2 ladder, 3 floor, 4 turret (30🧱) |
+| **1–7** | Combat: 1-5 guns, 6 pickaxe, 7 axe · Build: 1 wall, 2 door, 3 window, 4 floor, 5 ladder, 6 turret |
+| **U** | In build mode: upgrade the wooden piece you're aiming at to stone (costs 🪨) |
 | **F** | Enter / exit a **car** |
 | **Mouse wheel** | Cycle weapons |
 | **R** | Reload |
@@ -48,7 +49,9 @@ Headshots deal **double damage**. You start with a Pistol + AR; loot the rest fr
 
 ## 🧱 Real building
 
-Switch to Build mode (**B**) and place **full-size walls, climbable ladders, and floors** that snap to a grid, block bullets and body-block enemies — exactly the cover-building loop the genre is known for. Face a ladder and hold **W** to climb it. Each piece costs 10 materials; gather more from chests and kills.
+Switch to Build mode (**B**) and place textured, grid-snapped pieces: **walls, doors** (walk through the gap), **windows** (see & shoot through, but blocked from walking), **floors, climbable ladders**, and **turrets**. All pieces use procedural wood/stone textures. Face a ladder and hold **W** to climb. Pieces cost **wood 🪵** (from trees); collision is solid — thin walls can't be walked through.
+
+**Two resources:** chop **trees with the axe** for **wood 🪵** (builds), mine **rocks with the pickaxe** for **stone 🪨**. Aim at any wooden wall/door/window/floor you built and press **U** to spend stone and **upgrade it to stone** — far more health and a stone-brick look.
 
 ## 🔊 Sound
 

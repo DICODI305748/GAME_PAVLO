@@ -103,7 +103,7 @@
   <div id="rightHud">
     <div id="wpnName">Пістолет</div>
     <div id="ammo">12<small> / 12</small></div>
-    <div id="mats">🧱 <span id="matVal">50</span></div>
+    <div id="mats">🪵 <span id="matVal">50</span>&nbsp;&nbsp;🪨 <span id="stoneVal">0</span></div>
     <div id="modeTag" class="mode-combat">⚔ Бій</div>
   </div>
 
@@ -121,10 +121,11 @@
       <b>WASD</b><span>Рух · <b>Shift</b> біг · <b>Space</b> стрибок</span>
       <b>Миша</b><span>Огляд · ЛКМ — стріляти / будувати</span>
       <b>B</b><span>Перемкнути режим Бій / Будівництво</span>
-      <b>1–7</b><span>Бій: 1-5 зброя, 6 кірка, 7 сокира · Будівництво: 1 стіна, 2 драбина, 3 підлога, 4 турель (30🧱)</span>
-      <b>F</b><span>Сісти / вийти з <b>машини</b> 🚗</span>
-      <b>R</b><span>Перезарядка · <b>колесо</b> миші — зброя</span>
-      <b>E</b><span>Відкрити скриню · кіркою/сокирою бий дерева й каміння заради 🧱</span>
+      <b>1–7</b><span>Бій: 1-5 зброя, 6 кірка, 7 сокира</span>
+      <b>Буд.</b><span>1 стіна · 2 двері · 3 вікно · 4 підлога · 5 драбина · 6 турель</span>
+      <b>U</b><span>Апгрейд дерев'яної деталі каменем 🪨 (міцніше)</span>
+      <b>F</b><span>Сісти / вийти з <b>машини</b> 🚗 · <b>R</b> перезарядка</span>
+      <b>E</b><span>Скриня · сокирою бий дерева (🪵), кіркою — каміння (🪨)</span>
     </div>
     <p style="margin-top:12px;color:#9fb0e0;font-size:13px">Натисни кнопку, потім клікни по екрану щоб захопити мишу. <b>Esc</b> — відпустити.</p>
   </div>
@@ -510,7 +511,7 @@ function makePlayer(){
     vel:new THREE.Vector3(0,0,0),
     yaw:0, pitch:0, onGround:true,
     hp:100, maxHp:100, shield:0, maxShield:100,
-    mats:50, alive:true,
+    mats:50, stone:0, alive:true,   // mats = wood 🪵, stone 🪨 upgrades builds
     inv:{pistol:{ammo:12,reserve:60}, ar:{ammo:30,reserve:90},
          pickaxe:{melee:true}, axe:{melee:true}}, // start loadout + tools always owned
     vehicle:null,
@@ -563,23 +564,108 @@ function buildViewmodel(){
 // ===================================================================
 //  Structures (building)
 // ===================================================================
+// ---- Procedural textures (canvas -> CanvasTexture, works fully offline) ----
+function woodTexture(base, dark){
+  const S=128, cv=document.createElement("canvas"); cv.width=cv.height=S; const c=cv.getContext("2d");
+  c.fillStyle=base; c.fillRect(0,0,S,S);
+  const planks=4, pw=S/planks;
+  for(let i=0;i<planks;i++){
+    const shade=Math.random()*0.10-0.05;
+    c.fillStyle=`rgba(0,0,0,${Math.max(0,-shade)})`; c.fillRect(i*pw,0,pw,S);
+    c.fillStyle=`rgba(255,255,255,${Math.max(0,shade)})`; c.fillRect(i*pw,0,pw,S);
+    c.strokeStyle="rgba(60,38,18,0.35)"; c.lineWidth=1;
+    for(let g=0;g<7;g++){ const gx=i*pw+2+Math.random()*(pw-4); c.beginPath();
+      c.moveTo(gx,0); c.bezierCurveTo(gx+3,S*0.33,gx-3,S*0.66,gx+1,S); c.stroke(); }
+    c.strokeStyle=dark; c.lineWidth=2; c.strokeRect(i*pw+1,1,pw-2,S-2);
+  }
+  const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.RepeatWrapping; return t;
+}
+function stoneTexture(){
+  const S=128, cv=document.createElement("canvas"); cv.width=cv.height=S; const c=cv.getContext("2d");
+  c.fillStyle="#5f636b"; c.fillRect(0,0,S,S);
+  const rows=4, rh=S/rows;
+  for(let r=0;r<rows;r++){
+    const off=(r%2)*rh; const bw=rh*1.4;
+    for(let x=-off;x<S;x+=bw){
+      const g=0.5+Math.random()*0.35; const v=Math.floor(120*g);
+      c.fillStyle=`rgb(${v+10},${v+12},${v+18})`;
+      c.fillRect(x+1,r*rh+1,bw-2,rh-2);
+      c.strokeStyle="rgba(30,32,38,0.8)"; c.lineWidth=2; c.strokeRect(x+1,r*rh+1,bw-2,rh-2);
+    }
+  }
+  const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.RepeatWrapping; return t;
+}
+const TEX_WOOD=woodTexture("#a06a38","#5c3a1c");  TEX_WOOD.repeat.set(2,2);
+const TEX_FLOOR=woodTexture("#8a5f34","#4c3016");  TEX_FLOOR.repeat.set(3,3);
+const TEX_DOOR=woodTexture("#7a5228","#3c2610");   TEX_DOOR.repeat.set(1,2);
+const TEX_STONE=stoneTexture();                    TEX_STONE.repeat.set(2,2);
+const MAT_WOOD =new THREE.MeshStandardMaterial({map:TEX_WOOD, roughness:.9});
+const MAT_FLOOR=new THREE.MeshStandardMaterial({map:TEX_FLOOR,roughness:.9});
+const MAT_DOOR =new THREE.MeshStandardMaterial({map:TEX_DOOR, roughness:.85});
+const MAT_STONE=new THREE.MeshStandardMaterial({map:TEX_STONE,roughness:1, color:0xdfe1e6});
+const MAT_GLASS=new THREE.MeshStandardMaterial({color:0x9fd8ff,transparent:true,opacity:.35,roughness:.1,metalness:.2});
+
 function structGeom(kind){
-  if(kind==="wall") return new THREE.BoxGeometry(GRID, GRID, WALL_T);
-  if(kind==="floor") return new THREE.BoxGeometry(GRID, WALL_T, GRID);
   if(kind==="turret") return new THREE.CylinderGeometry(1.0,1.3,2.4,10);
-  if(kind==="ladder") return new THREE.BoxGeometry(1.7, GRID, 0.35);  // ghost/base shape
+  if(kind==="ladder")return new THREE.BoxGeometry(1.7, GRID, 0.35);
+  if(kind==="floor") return new THREE.BoxGeometry(GRID, WALL_T, GRID);
+  return new THREE.BoxGeometry(GRID, GRID, WALL_T);   // wall/door/window ghost outline
+}
+// Build the real textured mesh/group for a build piece (unrotated: spans X, thin Z).
+function makePieceMesh(kind){
+  if(kind==="wall"){
+    const m=new THREE.Mesh(new THREE.BoxGeometry(GRID,GRID,WALL_T), MAT_WOOD.clone());
+    m.castShadow=m.receiveShadow=true; return m;
+  }
+  if(kind==="floor"){
+    const m=new THREE.Mesh(new THREE.BoxGeometry(GRID,WALL_T,GRID), MAT_FLOOR.clone());
+    m.castShadow=m.receiveShadow=true; return m;
+  }
+  if(kind==="door"){
+    const g=new THREE.Group(); const off=GRID/2-0.6, hdrH=1.4;
+    for(const sx of [-off,off]){ const post=new THREE.Mesh(new THREE.BoxGeometry(1.2,GRID,WALL_T),MAT_WOOD.clone());
+      post.position.set(sx,0,0); post.castShadow=post.receiveShadow=true; g.add(post); }
+    const hdr=new THREE.Mesh(new THREE.BoxGeometry(GRID,hdrH,WALL_T),MAT_WOOD.clone());
+    hdr.position.set(0,GRID/2-hdrH/2,0); hdr.castShadow=true; g.add(hdr);
+    // openable-looking door slab, hinged ajar so the gap stays walkable
+    const slab=new THREE.Mesh(new THREE.BoxGeometry(GRID-2.4,GRID-hdrH-0.2,0.18),MAT_DOOR.clone());
+    const hinge=new THREE.Group(); hinge.position.set(-off+0.6,-(hdrH)/2,0);
+    slab.position.set((GRID-2.4)/2,0,0.5); hinge.add(slab); hinge.rotation.y=-1.0; g.add(hinge);
+    const knob=new THREE.Mesh(new THREE.SphereGeometry(0.12,8,8),MAT_STONE.clone());
+    knob.position.set(GRID-2.4-0.3,0,0.62); hinge.add(knob);
+    g.userData.upgradeMeshes=[g.children[0],g.children[1],hdr,slab]; return g;
+  }
+  if(kind==="window"){
+    const g=new THREE.Group(); const sillH=1.7, hdrH=1.3;
+    const sill=new THREE.Mesh(new THREE.BoxGeometry(GRID,sillH,WALL_T),MAT_WOOD.clone());
+    sill.position.set(0,-GRID/2+sillH/2,0); sill.castShadow=sill.receiveShadow=true; g.add(sill);
+    const hdr=new THREE.Mesh(new THREE.BoxGeometry(GRID,hdrH,WALL_T),MAT_WOOD.clone());
+    hdr.position.set(0,GRID/2-hdrH/2,0); hdr.castShadow=true; g.add(hdr);
+    const midH=GRID-sillH-hdrH;
+    for(const sx of [-GRID/2+0.5, GRID/2-0.5]){ const jamb=new THREE.Mesh(new THREE.BoxGeometry(1.0,midH,WALL_T),MAT_WOOD.clone());
+      jamb.position.set(sx, -GRID/2+sillH+midH/2, 0); jamb.castShadow=true; g.add(jamb); }
+    const glass=new THREE.Mesh(new THREE.BoxGeometry(GRID-2,midH,0.06),MAT_GLASS);
+    glass.position.set(0,-GRID/2+sillH+midH/2,0); glass.raycast=function(){}; g.add(glass); // shoot through
+    const cross=new THREE.Mesh(new THREE.BoxGeometry(0.12,midH,0.12),MAT_WOOD.clone()); cross.position.copy(glass.position); g.add(cross);
+    g.userData.upgradeMeshes=[sill,hdr,g.children[2],g.children[3],cross]; return g;
+  }
+}
+// Swap a placed structure's wooden meshes to stone (upgrade).
+function upgradeToStone(s){
+  const swap=(o)=>{ if(o.isMesh && o.material!==MAT_GLASS && o.material.map!==TEX_STONE) o.material=MAT_STONE.clone(); };
+  s.mesh.traverse(o=>{ if(o.isMesh && o.material && o.material!==MAT_GLASS) o.material=MAT_STONE.clone(); });
+  s.upgraded=true; s.hp=s.maxHp=420;
 }
 // Build a climbable ladder (2 rails + rungs) as a group.
 function makeLadderMesh(){
   const g=new THREE.Group();
-  const mat=new THREE.MeshStandardMaterial({color:0xcaa16a,roughness:.85});
   for(const sx of [-0.7,0.7]){
-    const rail=new THREE.Mesh(new THREE.BoxGeometry(0.18,GRID,0.18),mat);
+    const rail=new THREE.Mesh(new THREE.BoxGeometry(0.18,GRID,0.18),MAT_WOOD.clone());
     rail.position.set(sx,0,0); rail.castShadow=true; g.add(rail);
   }
   const rungs=Math.floor(GRID/0.6);
   for(let i=0;i<rungs;i++){
-    const rung=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.14,0.14),mat);
+    const rung=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.14,0.14),MAT_WOOD.clone());
     rung.position.set(0, -GRID/2+0.4+i*0.6, 0); rung.castShadow=true; g.add(rung);
   }
   return g;
@@ -601,8 +687,8 @@ function placement(){
   const baseY=Math.round(player.pos.y/GRID)*GRID;
   // nearest 90° orientation
   const dir=(Math.round(yaw/(Math.PI/2))*(Math.PI/2));
-  if(buildPiece==="wall"){
-    return {x:snap(px), y:baseY+GRID/2, z:snap(pz), rot:dir, kind:"wall"};
+  if(buildPiece==="wall"||buildPiece==="door"||buildPiece==="window"){
+    return {x:snap(px), y:baseY+GRID/2, z:snap(pz), rot:dir, kind:buildPiece};
   }
   if(buildPiece==="floor"){
     return {x:snap(px), y:baseY, z:snap(pz), rot:0, kind:"floor"};
@@ -614,7 +700,8 @@ function placement(){
   return {x:snap(px), y:baseY+GRID/2, z:snap(pz), rot:dir, kind:"ladder"};
 }
 const TURRET_COST=30;
-function pieceCost(kind){ return kind==="turret"?TURRET_COST:10; }
+function pieceCost(kind){ return kind==="turret"?TURRET_COST:10; }   // all in wood 🪵
+const UPGRADE_COST=20;                                               // stone 🪨 to upgrade
 
 function updateGhost(){
   if(!buildMode){ if(ghost){dynGroup.remove(ghost);ghost=null;} return; }
@@ -669,29 +756,56 @@ function placeTurret(p){
 function placeStructure(){
   const p=placement();
   const cost=pieceCost(p.kind);
-  if(player.mats<cost){ toast("Треба "+cost+" 🧱"); return; }
+  if(player.mats<cost){ toast("Треба "+cost+" 🪵 дерева"); return; }
   if(p.kind==="turret"){ placeTurret(p); player.mats-=cost; updateHUD(); return; }
   let mesh;
-  if(p.kind==="ladder"){ mesh=makeLadderMesh(); }
-  else { mesh=new THREE.Mesh(structGeom(p.kind), structMat(false)); }
+  if(p.kind==="ladder") mesh=makeLadderMesh();
+  else mesh=makePieceMesh(p.kind);          // textured wall / door / window / floor
   mesh.position.set(p.x,p.y,p.z); mesh.rotation.set(0,p.rot,0);
-  mesh.castShadow=mesh.receiveShadow=true;
   dynGroup.add(mesh); mesh.updateMatrixWorld();
-  const s={mesh, hp:150, maxHp:150, kind:p.kind, ...p};
-  // collider for walls (thin box aligned to rot)
-  if(p.kind==="wall"){
-    // BoxGeometry(GRID,GRID,WALL_T): unrotated the panel spans X and is thin in Z.
-    const alongX = Math.abs(Math.sin(p.rot))<0.5; // rot≈0 or 180 -> spans X
-    if(alongX) s.col={minx:p.x-GRID/2,maxx:p.x+GRID/2,minz:p.z-WALL_T,maxz:p.z+WALL_T,top:p.y+GRID/2};
-    else       s.col={minx:p.x-WALL_T,maxx:p.x+WALL_T,minz:p.z-GRID/2,maxz:p.z+GRID/2,top:p.y+GRID/2};
+  const s={mesh, hp:150, maxHp:150, kind:p.kind, wood:true, upgraded:false, ...p};
+  const alongX = Math.abs(Math.sin(p.rot))<0.5;   // unrotated piece spans X, thin in Z
+  const wallCol=()=> alongX
+    ? {minx:p.x-GRID/2,maxx:p.x+GRID/2,minz:p.z-WALL_T,maxz:p.z+WALL_T,top:p.y+GRID/2}
+    : {minx:p.x-WALL_T,maxx:p.x+WALL_T,minz:p.z-GRID/2,maxz:p.z+GRID/2,top:p.y+GRID/2};
+  if(p.kind==="wall" || p.kind==="window"){
+    s.col=wallCol();                              // window has a sill -> blocks walking
+  } else if(p.kind==="door"){
+    // two side posts with a walkable gap between them
+    const off=GRID/2-0.6;
+    if(alongX){
+      s.cols=[ {minx:p.x-off-0.6,maxx:p.x-off+0.6,minz:p.z-WALL_T,maxz:p.z+WALL_T},
+               {minx:p.x+off-0.6,maxx:p.x+off+0.6,minz:p.z-WALL_T,maxz:p.z+WALL_T} ];
+    } else {
+      s.cols=[ {minx:p.x-WALL_T,maxx:p.x+WALL_T,minz:p.z-off-0.6,maxz:p.z-off+0.6},
+               {minx:p.x-WALL_T,maxx:p.x+WALL_T,minz:p.z+off-0.6,maxz:p.z+off+0.6} ];
+    }
   } else if(p.kind==="floor"){
     s.floorTop=p.y+WALL_T/2; s.fminx=p.x-GRID/2; s.fmaxx=p.x+GRID/2; s.fminz=p.z-GRID/2; s.fmaxz=p.z+GRID/2;
   } else if(p.kind==="ladder"){
-    // climbable region: centre column, from base to top
     s.ladder={x:p.x, z:p.z, base:p.y-GRID/2, top:p.y+GRID/2};
   }
   structures.push(s);
-  player.mats-=cost; updateHUD();
+  player.mats-=cost; playBlip(300,0.05); updateHUD();
+}
+
+// Upgrade the wooden structure you're looking at, spending stone.
+function upgradeAimed(){
+  camera.getWorldDirection(tmpD);
+  const origin=camera.getWorldPosition(new THREE.Vector3());
+  raycaster.set(origin,tmpD); raycaster.far=9;
+  const meshes=structures.map(s=>s.mesh);
+  const hits=raycaster.intersectObjects(meshes,true);
+  if(!hits.length){ toast("Наведись на свою дерев'яну споруду"); return; }
+  let o=hits[0].object, st=null;
+  while(o){ st=structures.find(s=>s.mesh===o); if(st)break; o=o.parent; }
+  if(!st){ toast("Наведись на споруду"); return; }
+  if(st.kind==="turret"||st.kind==="ladder"){ toast("Це не можна апгрейдити"); return; }
+  if(st.upgraded){ toast("Вже кам'яна"); return; }
+  if(player.stone<UPGRADE_COST){ toast("Треба "+UPGRADE_COST+" 🪨 каменю"); return; }
+  player.stone-=UPGRADE_COST; upgradeToStone(st);
+  burst(st.mesh.position.x,st.mesh.position.y,st.mesh.position.z,0xd8dade,14);
+  playBlip(520,0.08); toast("Апгрейд до каменю! 🪨 міцніше"); updateHUD();
 }
 
 // ===================================================================
@@ -773,7 +887,7 @@ function spawnChests(){
 function openChest(c){
   c.opened=true; c.lid.rotation.x=-1.2; c.lid.position.z=-0.4;
   burst(c.x,1.2,c.z,0xffd54a,20);
-  const pool=["mat","mat","ammo","shield","heal","weapon"];
+  const pool=["mat","stone","ammo","shield","heal","weapon"];
   for(let i=0;i<3;i++){
     const t=pool[Math.floor(rand(0,pool.length))];
     dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), t);
@@ -781,7 +895,7 @@ function openChest(c){
   toast("Скриню відкрито!");
 }
 function dropLoot(x,z,type){
-  const col={mat:0xc9a76a,ammo:0xffe08a,shield:0x2f80ff,heal:0x35d07f,weapon:0xff9d5c}[type];
+  const col={mat:0xc9a76a,stone:0x9fb4c8,ammo:0xffe08a,shield:0x2f80ff,heal:0x35d07f,weapon:0xff9d5c}[type];
   const m=new THREE.Mesh(new THREE.OctahedronGeometry(0.4,0),
     new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.5}));
   m.position.set(x,1,z); m.castShadow=true; dynGroup.add(m);
@@ -789,8 +903,9 @@ function dropLoot(x,z,type){
 }
 function pickupLoot(l){
   switch(l.type){
-    case "mat": player.mats=Math.min(500,player.mats+40); toast("+40 🧱"); break;
-    case "ammo": { const inv=player.inv[player.cur]; if(inv) inv.reserve+=Math.round(WEAPONS[player.cur].mag*2); toast("+Патрони"); break; }
+    case "mat": player.mats=Math.min(999,player.mats+40); toast("+40 🪵 дерево"); break;
+    case "stone": player.stone=Math.min(999,player.stone+30); toast("+30 🪨 камінь"); break;
+    case "ammo": { const inv=player.inv[player.cur]; if(inv&&!inv.melee) inv.reserve+=Math.round(WEAPONS[player.cur].mag*2); toast("+Патрони"); break; }
     case "shield": player.shield=Math.min(player.maxShield,player.shield+50); toast("+50 Щит"); break;
     case "heal": player.hp=Math.min(player.maxHp,player.hp+40); toast("+40 Здоров'я"); break;
     case "weapon": {
@@ -850,14 +965,26 @@ function resolveHoriz(px,pz){
   const check=(minx,maxx,minz,maxz)=>{
     const cx=clamp(px,minx,maxx), cz=clamp(pz,minz,maxz);
     const dx=px-cx, dz=pz-cz, d2=dx*dx+dz*dz;
-    if(d2<PLAYER_R*PLAYER_R){
-      const d=Math.sqrt(d2)||0.0001;
-      const push=(PLAYER_R-d);
-      px+=dx/d*push; pz+=dz/d*push;
+    if(d2>1e-7){
+      if(d2<PLAYER_R*PLAYER_R){ const d=Math.sqrt(d2); const push=PLAYER_R-d; px+=dx/d*push; pz+=dz/d*push; }
+    } else if(px>minx&&px<maxx&&pz>minz&&pz<maxz){
+      // centre is INSIDE the box (happens with thin walls) — eject along least-penetration axis
+      const penL=px-minx, penR=maxx-px, penD=pz-minz, penU=maxz-pz;
+      const m=Math.min(penL,penR,penD,penU);
+      if(m===penL) px=minx-PLAYER_R;
+      else if(m===penR) px=maxx+PLAYER_R;
+      else if(m===penD) pz=minz-PLAYER_R;
+      else pz=maxz+PLAYER_R;
     }
   };
-  for(const c of worldColliders) check(c.minx,c.maxx,c.minz,c.maxz);
-  for(const s of structures){ if(s.col) check(s.col.minx,s.col.maxx,s.col.minz,s.col.maxz); }
+  // two passes so corners (two walls meeting) resolve cleanly instead of squeezing through
+  for(let pass=0; pass<2; pass++){
+    for(const c of worldColliders) check(c.minx,c.maxx,c.minz,c.maxz);
+    for(const s of structures){
+      if(s.col) check(s.col.minx,s.col.maxx,s.col.minz,s.col.maxz);
+      if(s.cols) for(const c of s.cols) check(c.minx,c.maxx,c.minz,c.maxz);
+    }
+  }
   return [px,pz];
 }
 function groundHeightAt(x,z){
@@ -985,10 +1112,10 @@ function meleeSwing(w, now){
   if(harv){
     const bonus = (w.harvest===harv.userData.harvest);
     const gain = bonus?16:9;
-    player.mats=Math.min(999, player.mats+gain);
+    if(harv.userData.harvest==="wood"){ player.mats=Math.min(999,player.mats+gain); toast("+"+gain+" 🪵 дерево"); }
+    else { player.stone=Math.min(999,player.stone+gain); toast("+"+gain+" 🪨 камінь"); }
     harv.userData.hp -= bonus?2:1;
     burst(h.point.x,h.point.y,h.point.z, harv.userData.harvest==="wood"?0xcaa16a:0x9fb4c8, 8);
-    toast("+"+gain+" 🧱");
     if(harv.userData.hp<=0) removeHarvestable(harv);
     updateHUD(); return;
   }
@@ -1235,8 +1362,9 @@ function killBot(b, byStorm){
   if(!byStorm){ killCount++; killFeed("Ти", WEAPONS[player.cur].name, "суперника"); }
   // drop loot
   const r=Math.random();
-  if(r<0.45) dropLoot(b.x,b.z,"mat");
-  else if(r<0.65) dropLoot(b.x,b.z,"ammo");
+  if(r<0.32) dropLoot(b.x,b.z,"mat");
+  else if(r<0.5) dropLoot(b.x,b.z,"stone");
+  else if(r<0.66) dropLoot(b.x,b.z,"ammo");
   else if(r<0.8) dropLoot(b.x,b.z,"shield");
   else if(r<0.92) dropLoot(b.x,b.z,"heal");
   else dropLoot(b.x,b.z,"weapon");
@@ -1303,10 +1431,12 @@ addEventListener("keydown",e=>{
   else if(c==="KeyR"){ startReload(); }
   else if(c==="KeyE"){ tryOpenChest(); }
   else if(c==="KeyF"){ toggleVehicle(); }
+  else if(c==="KeyU"){ if(buildMode) upgradeAimed(); }
   else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
   else if(/^Digit[1-7]$/.test(c)){
     const n=c.slice(5);
-    if(buildMode){ buildPiece = n==="1"?"wall":n==="2"?"ladder":n==="3"?"floor":n==="4"?"turret":buildPiece; buildInvBar(); updateGhost(); }
+    if(buildMode){ const pc={1:"wall",2:"door",3:"window",4:"floor",5:"ladder",6:"turret"}[n];
+      if(pc){ buildPiece=pc; buildInvBar(); updateGhost(); } }
     else { const wname=ALLSEL[parseInt(n)-1]; if(wname && player.inv[wname]){ selectWeapon(wname); } }
   }
 });
@@ -1358,7 +1488,7 @@ function tryOpenChest(){
 function buildInvBar(){
   const bar=document.getElementById("invbar"); bar.innerHTML="";
   if(buildMode){
-    const pieces=[["wall","Стіна","1"],["ladder","Драбина","2"],["floor","Підлога","3"],["turret","Турель 30🧱","4"]];
+    const pieces=[["wall","Стіна","1"],["door","Двері","2"],["window","Вікно","3"],["floor","Підлога","4"],["ladder","Драбина","5"],["turret","Турель","6"]];
     for(const [id,label,key] of pieces){
       const d=document.createElement("div");
       d.className="slot"+(buildPiece===id?" active":"");
@@ -1383,6 +1513,7 @@ function updateHUD(){
   document.getElementById("shLab").textContent=Math.ceil(player.shield)+" / "+player.maxShield;
   document.getElementById("killVal").textContent=killCount;
   document.getElementById("matVal").textContent=player.mats;
+  document.getElementById("stoneVal").textContent=player.stone;
   const w=WEAPONS[player.cur], inv=player.inv[player.cur];
   document.getElementById("wpnName").textContent=w.name;
   document.getElementById("ammo").innerHTML= w.melee ? "🪓<small> інструмент</small>"
