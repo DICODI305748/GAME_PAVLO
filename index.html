@@ -70,6 +70,18 @@
   button.play{margin-top:22px;font:inherit;font-size:19px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;color:#05070f;
     background:linear-gradient(90deg,var(--cyan),var(--gold));border:none;border-radius:40px;padding:13px 44px;cursor:pointer;box-shadow:0 6px 24px rgba(34,227,255,.4);transition:transform .12s}
   button.play:hover{transform:translateY(-2px) scale(1.03)}
+  /* floating action button (menu) */
+  @keyframes fabFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+  .fab{position:fixed;right:26px;bottom:26px;width:64px;height:64px;border-radius:50%;border:none;cursor:pointer;z-index:40;
+    font-size:28px;color:#05070f;background:linear-gradient(135deg,var(--cyan),var(--gold));
+    box-shadow:0 10px 26px rgba(34,227,255,.5),0 0 0 4px rgba(255,255,255,.08);
+    animation:fabFloat 2.6s ease-in-out infinite;transition:transform .15s, box-shadow .15s}
+  .fab:hover{transform:scale(1.12);box-shadow:0 14px 34px rgba(255,213,74,.6),0 0 0 4px rgba(255,255,255,.15)}
+  .fab:active{transform:scale(.96)}
+  .fab .tip{position:absolute;right:76px;top:50%;transform:translateY(-50%);white-space:nowrap;
+    background:rgba(8,12,30,.9);color:#eef2ff;font-size:13px;padding:6px 12px;border-radius:8px;
+    border:1px solid rgba(34,195,255,.4);opacity:0;pointer-events:none;transition:opacity .15s}
+  .fab:hover .tip{opacity:1}
   .result{font-size:clamp(30px,6vw,54px);font-weight:bold;letter-spacing:2px;margin-bottom:8px}
   .victory{color:var(--gold);text-shadow:0 0 30px rgba(255,213,74,.6)}
   .defeat{color:#ff5d73;text-shadow:0 0 30px rgba(255,93,115,.5)}
@@ -148,6 +160,9 @@
     <p id="onlineNow" style="font-size:13px;color:#5ee0b0;margin-top:10px;line-height:1.5"></p>
     <button id="copyLinkBtn" style="display:none;font:inherit;color:#7fe0ff;background:none;border:1px solid #3b4a86;border-radius:8px;padding:6px 14px;cursor:pointer;margin-top:6px">🔗 Скопіювати лінк для друга</button>
   </div>
+
+  <!-- floating action button: reroll a fresh procedural world -->
+  <button class="fab" id="fab">🎲<span class="tip">Новий світ 🎲</span></button>
 </div>
 
 <!-- End -->
@@ -2342,6 +2357,11 @@ function endGame(victory){
 })();
 document.getElementById("startBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
 document.getElementById("againBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
+// floating button: reload for a fresh procedural world (drops the room -> new random seed)
+document.getElementById("fab").addEventListener("click",()=>{
+  const u=new URL(location.href); u.searchParams.delete("room"); u.searchParams.set("_", Date.now());
+  location.href=u.toString();
+});
 
 // idle render behind menu
 renderer.render(scene,camera);
