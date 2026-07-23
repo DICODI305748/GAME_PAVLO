@@ -130,16 +130,23 @@
     </div>
     <p style="margin-top:12px;color:#9fb0e0;font-size:13px">Натисни кнопку, потім клікни по екрану щоб захопити мишу. <b>Esc</b> — відпустити.</p>
   </div>
-  <button class="play" id="startBtn">Почати виживання</button>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:6px">
+    <button class="play" id="startBtn">🎮 Одиночна гра</button>
+    <button class="play" id="coopBtn" style="background:linear-gradient(90deg,#22c3ff,#5ee0b0);box-shadow:0 6px 24px rgba(34,195,255,.4)">🌐 Кооператив</button>
+  </div>
 
-  <div style="margin-top:18px;background:rgba(20,28,60,.6);border:1px solid rgba(34,195,255,.4);border-radius:12px;padding:12px 18px;max-width:560px">
-    <div style="color:#7fe0ff;letter-spacing:1px;margin-bottom:6px">🌐 ОНЛАЙН-КООПЕРАТИВ</div>
-    <p style="font-size:13px;color:#b9c6f0;line-height:1.5;margin-bottom:8px">Спершу запусти сервер: <code style="color:#ffd54a">npm install</code> потім <code style="color:#ffd54a">npm start</code>. Тоді введи код кімнати й тисни «Зайти» — друзі з тим самим кодом (і адресою сервера) грають разом на спільній карті. Код кімнати = сід світу.</p>
-    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-      <input id="roomInput" placeholder="код кімнати (напр. 1234)" style="padding:8px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:180px">
-      <button id="onlineBtn" style="font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,#22c3ff,#5ee0b0);border:none;border-radius:8px;padding:8px 18px;cursor:pointer">Зайти онлайн</button>
+  <div id="coopBox" style="display:none;margin-top:18px;background:rgba(20,28,60,.6);border:1px solid rgba(34,195,255,.4);border-radius:12px;padding:14px 20px;max-width:580px">
+    <div style="color:#7fe0ff;letter-spacing:1px;margin-bottom:8px">🌐 ОНЛАЙН-КООПЕРАТИВ</div>
+    <p style="font-size:13px;color:#b9c6f0;line-height:1.5;margin-bottom:10px">Спершу один раз запусти сервер: <code style="color:#ffd54a">npm install</code>, тоді <code style="color:#ffd54a">npm start</code>. Далі — <b>Створи гру</b> (отримаєш код + лінк для друга) або <b>Зайди</b> за кодом друга.</p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:8px">
+      <button id="createBtn" style="font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,#ffd54a,#ff9d5c);border:none;border-radius:8px;padding:10px 20px;cursor:pointer">➕ Створити гру</button>
     </div>
-    <p id="onlineNow" style="font-size:12px;color:#5ee0b0;margin-top:8px"></p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+      <input id="roomInput" placeholder="код кімнати друга" style="padding:9px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:170px">
+      <button id="onlineBtn" style="font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,#22c3ff,#5ee0b0);border:none;border-radius:8px;padding:9px 18px;cursor:pointer">Зайти</button>
+    </div>
+    <p id="onlineNow" style="font-size:13px;color:#5ee0b0;margin-top:10px;line-height:1.5"></p>
+    <button id="copyLinkBtn" style="display:none;font:inherit;color:#7fe0ff;background:none;border:1px solid #3b4a86;border-radius:8px;padding:6px 14px;cursor:pointer;margin-top:6px">🔗 Скопіювати лінк для друга</button>
   </div>
 </div>
 
@@ -2308,12 +2315,30 @@ function endGame(victory){
 
 // Online room UI: joining reloads the page with ?room= so the world seed matches.
 (function(){
-  const inp=document.getElementById("roomInput"), btn=document.getElementById("onlineBtn"), now=document.getElementById("onlineNow");
-  if(ONLINE){ now.textContent="✅ Ти в кімнаті \""+ROOM+"\". Тисни «Почати виживання». (Вийти онлайн — прибери ?room= з адреси.)"; if(inp) inp.value=ROOM; }
-  if(btn) btn.addEventListener("click",()=>{
-    const code=(inp.value||"").trim(); if(!code){ now.textContent="Введи код кімнати."; return; }
-    const u=new URL(location.href); u.searchParams.set("room",code); location.href=u.toString();
-  });
+  const box=document.getElementById("coopBox"), coopBtn=document.getElementById("coopBtn");
+  const inp=document.getElementById("roomInput"), btn=document.getElementById("onlineBtn");
+  const createBtn=document.getElementById("createBtn"), now=document.getElementById("onlineNow");
+  const copyBtn=document.getElementById("copyLinkBtn");
+  const joinRoom=(code)=>{ const u=new URL(location.href); u.searchParams.set("room",code); location.href=u.toString(); };
+
+  createBtn.addEventListener("click",()=>{ joinRoom(String(1000+Math.floor(Math.random()*9000))); });
+  btn.addEventListener("click",()=>{ const code=(inp.value||"").trim(); if(!code){ now.textContent="Введи код кімнати друга."; return; } joinRoom(code); });
+
+  if(ONLINE){
+    // already in a room: the green button starts the co-op game
+    box.style.display="block";
+    const link=location.href;
+    now.innerHTML="✅ Кімната <b style='color:#ffd54a'>"+ROOM+"</b>. Надішли другові код або лінк, і тисни зелену кнопку:";
+    copyBtn.style.display="inline-block";
+    copyBtn.addEventListener("click",()=>{ (navigator.clipboard?navigator.clipboard.writeText(link):Promise.reject())
+      .then(()=>copyBtn.textContent="✅ Скопійовано!").catch(()=>{ now.innerHTML+="<br><span style='color:#9fb0e0'>"+link+"</span>"; }); });
+    if(inp) inp.value=ROOM;
+    coopBtn.textContent="🌐 Грати в кооперативі";
+    coopBtn.addEventListener("click",()=>{ initAudio(); startGame(); });
+  } else {
+    // not in a room yet: the green button just reveals the co-op panel
+    coopBtn.addEventListener("click",()=>{ box.style.display = box.style.display==="none"?"block":"none"; });
+  }
 })();
 document.getElementById("startBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
 document.getElementById("againBtn").addEventListener("click",()=>{ initAudio(); startGame(); });
