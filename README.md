@@ -1,6 +1,6 @@
 # 🌩️ Storm Royale 3D
 
-A full **3D first-person battle royale** in a single HTML file, built with [Three.js](https://threejs.org). Real Fortnite-style building (walls, climbable ladders and floors — not tiny cubes), seven weapons & tools, drivable vehicles, placeable turrets, procedural sound, a shrinking storm, loot chests and 49 AI opponents. Drop in, loot, build, and be the last one standing.
+A full **3D first-person battle royale** in a single HTML file, built with [Three.js](https://threejs.org). Real Fortnite-style building (walls, climbable ladders and floors — not tiny cubes), seven weapons & tools, drivable vehicles, placeable turrets, procedural sound, a shrinking storm, loot chests and 100 AI opponents. Drop in, loot, build, and be the last one standing.
 
 ## ▶️ Play
 
@@ -66,14 +66,14 @@ Every match starts with a **helicopter drop**: you skydive from ~130m, free-fall
 ## 🌪️ Battle royale systems
 
 - **Shrinking Storm** — a purple zone that closes in over multiple phases and damages anyone caught outside.
-- **50-player lobby** — 49 AI rivals that wander, hunt, strafe, flee the storm, and drop loot.
+- **101-player lobby** — 100 AI rivals that wander, hunt, strafe, flee the storm, and drop loot.
 - **Health + Shields** — shields absorb damage first; heal and shield from loot.
 - **Loot chests** near houses and scattered across the map.
 - **HUD + minimap** — players alive, eliminations, storm phase, killfeed, and a live radar.
 
 ## 🏆 How to win
 
-Outlast all 49 opponents and the Storm for **#1 Victory Royale**.
+Outlast all 100 opponents and the Storm for **#1 Victory Royale**.
 
 ---
 

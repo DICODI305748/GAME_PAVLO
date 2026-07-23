@@ -171,7 +171,7 @@ const EYE = 1.65;
 const PLAYER_R = 0.5;
 const GRAV = 26;
 const JUMP = 9.2;
-const BOT_COUNT = 49;
+const BOT_COUNT = 100;
 
 const rand = (a,b)=>a+Math.random()*(b-a);
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
@@ -887,6 +887,7 @@ function spawnChests(){
 function openChest(c){
   c.opened=true; c.lid.rotation.x=-1.2; c.lid.position.z=-0.4;
   burst(c.x,1.2,c.z,0xffd54a,20);
+  dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "stone");   // every chest gives stone
   const pool=["mat","stone","ammo","shield","heal","weapon"];
   for(let i=0;i<3;i++){
     const t=pool[Math.floor(rand(0,pool.length))];
