@@ -157,7 +157,10 @@
 
   <div id="coopBox" style="display:none;margin-top:18px;background:rgba(20,28,60,.6);border:1px solid rgba(34,195,255,.4);border-radius:12px;padding:14px 20px;max-width:580px">
     <div style="color:#7fe0ff;letter-spacing:1px;margin-bottom:8px">🌐 ОНЛАЙН-КООПЕРАТИВ</div>
-    <p style="font-size:13px;color:#b9c6f0;line-height:1.5;margin-bottom:10px">Спершу один раз запусти сервер: <code style="color:#ffd54a">npm install</code>, тоді <code style="color:#ffd54a">npm start</code>. Далі — <b>Створи гру</b> (отримаєш код + лінк для друга) або <b>Зайди</b> за кодом друга.</p>
+    <p style="font-size:13px;color:#b9c6f0;line-height:1.5;margin-bottom:10px">Через інтернет: підніми сервер (<code style="color:#ffd54a">npm start</code>) і зроби його публічним — напр. <code style="color:#ffd54a">cloudflared tunnel --url http://localhost:8080</code> або безкоштовний хостинг (Render/Railway). Встав отриману <b>wss://</b>-адресу нижче. Локально (один ПК/мережа) лиши <code style="color:#ffd54a">ws://localhost:8080</code>.</p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:8px">
+      <input id="serverInput" placeholder="адреса сервера (wss://...)" style="padding:9px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:280px">
+    </div>
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:8px">
       <button id="createBtn" style="font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,#ffd54a,#ff9d5c);border:none;border-radius:8px;padding:10px 20px;cursor:pointer">➕ Створити гру</button>
     </div>
@@ -227,7 +230,7 @@ const snap=(v)=>Math.round(v/GRID)*GRID;
 // seeds the world so everyone in the room gets the SAME map.
 const NETP = new URLSearchParams(location.search);
 const ROOM = NETP.get("room");
-const SERVER_URL = NETP.get("server") || ("ws://"+(location.hostname||"localhost")+":8080");
+const SERVER_URL = NETP.get("server") || ((location.protocol==="https:"?"wss://":"ws://")+(location.hostname||"localhost")+":8080");
 const ONLINE = !!ROOM;
 function hashStr(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
 const WORLD_SEED = ONLINE ? hashStr(ROOM) : ((Math.random()*1e9)>>>0);
@@ -2343,9 +2346,13 @@ function endGame(victory){
 (function(){
   const box=document.getElementById("coopBox"), coopBtn=document.getElementById("coopBtn");
   const inp=document.getElementById("roomInput"), btn=document.getElementById("onlineBtn");
+  const srv=document.getElementById("serverInput");
   const createBtn=document.getElementById("createBtn"), now=document.getElementById("onlineNow");
   const copyBtn=document.getElementById("copyLinkBtn");
-  const joinRoom=(code)=>{ const u=new URL(location.href); u.searchParams.set("room",code); location.href=u.toString(); };
+  if(srv) srv.value=SERVER_URL;   // prefill with current/default server
+  const joinRoom=(code)=>{ const u=new URL(location.href); u.searchParams.set("room",code);
+    const s=(srv&&srv.value||"").trim(); if(s) u.searchParams.set("server",s); else u.searchParams.delete("server");
+    location.href=u.toString(); };
 
   createBtn.addEventListener("click",()=>{ joinRoom(String(1000+Math.floor(Math.random()*9000))); });
   btn.addEventListener("click",()=>{ const code=(inp.value||"").trim(); if(!code){ now.textContent="Введи код кімнати друга."; return; } joinRoom(code); });

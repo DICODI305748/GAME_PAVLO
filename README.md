@@ -13,9 +13,18 @@ npm start        # starts the co-op server on ws://localhost:8080
 
 Then open the game and use the **🌐 Online co-op** box on the start screen: type a **room code** and click **Зайти онлайн**. Everyone who joins the **same room code and server** shares the same procedurally generated map (the room code seeds the world), sees each other move, **builds a base together**, and fights the **same zombie horde** (the first player in the room is the host and owns the zombie simulation).
 
-- To join a specific server, append `?room=CODE&server=ws://HOST:8080` to the URL.
-- For friends over the internet, run the server on a host they can reach (VPS, or a tunnel like `ngrok http 8080` → use the `ws://`/`wss://` URL it gives).
+- To join a specific server, append `?room=CODE&server=ws://HOST:8080` to the URL (the co-op panel has a **server address** field that fills this in and bakes it into the shareable link).
 - The offline single-player game still works exactly as before if you don't enter a room.
+
+### Playing over the internet
+
+`localhost` only works on one machine. To play with friends elsewhere, make the server reachable from the internet and give the client a **`wss://`** URL (a page served over HTTPS can only connect to secure `wss://`):
+
+1. **Easiest — a tunnel from your PC.** Run the server (`npm start`), then in another terminal:
+   - Cloudflare: `cloudflared tunnel --url http://localhost:8080` → gives an `https://…trycloudflare.com` URL; use it as `wss://…trycloudflare.com`.
+   - or `npx localtunnel --port 8080`, or `ngrok http 8080`.
+2. **Free cloud host (permanent).** Deploy `server.js` to Render / Railway / Fly.io (it already listens on `process.env.PORT`). You get a `wss://your-app.onrender.com` URL.
+3. Host the game page itself somewhere friends can open it (GitHub Pages / Netlify — it's just `index.html` + `three.min.js`), open the **🌐 Кооператив** panel, paste your `wss://` address into **server address**, click **Створити гру**, and send the generated link (it carries the room code **and** the server address).
 
 ## 🌙 Day / night survival loop
 
