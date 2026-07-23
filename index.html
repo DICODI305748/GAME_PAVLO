@@ -169,6 +169,7 @@ const GRID = 6;               // building grid size (also wall width/height)
 const WALL_T = 0.4;           // wall thickness
 const EYE = 1.65;
 const PLAYER_R = 0.5;
+const PLAYER_H = 1.8;   // player body height (for height-aware wall collision)
 const GRAV = 26;
 const JUMP = 9.2;
 const BOT_COUNT = 100;
@@ -678,26 +679,31 @@ function structMat(ghostMode){
   });
 }
 
-// compute placement target (grid-snapped) in front of player
+// Fortnite-style grid: floors tile on cell centres, walls snap to the cell
+// EDGE the player is facing so they line up flush with the floor tiles.
 function placement(){
   const yaw=player.yaw;
   const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
-  const px=player.pos.x+fx*GRID*0.9;
-  const pz=player.pos.z+fz*GRID*0.9;
+  const homeX=Math.round(player.pos.x/GRID)*GRID;   // player's current tile centre
+  const homeZ=Math.round(player.pos.z/GRID)*GRID;
   const baseY=Math.round(player.pos.y/GRID)*GRID;
-  // nearest 90° orientation
-  const dir=(Math.round(yaw/(Math.PI/2))*(Math.PI/2));
-  if(buildPiece==="wall"||buildPiece==="door"||buildPiece==="window"){
-    return {x:snap(px), y:baseY+GRID/2, z:snap(pz), rot:dir, kind:buildPiece};
-  }
+  // dominant facing direction -> which edge / neighbour tile
+  let ex=0,ez=0;
+  if(Math.abs(fx)>=Math.abs(fz)) ex=fx>=0?1:-1; else ez=fz>=0?1:-1;
+
   if(buildPiece==="floor"){
-    return {x:snap(px), y:baseY, z:snap(pz), rot:0, kind:"floor"};
+    // the tile directly in front of you
+    return {x:homeX+ex*GRID, y:baseY, z:homeZ+ez*GRID, rot:0, kind:"floor"};
   }
   if(buildPiece==="turret"){
-    return {x:px, y:baseY, z:pz, rot:dir, kind:"turret"};  // sits on the ground, not grid-snapped
+    return {x:player.pos.x+fx*GRID*0.9, y:baseY, z:player.pos.z+fz*GRID*0.9, rot:0, kind:"turret"};
   }
-  // ladder (vertical, climbable)
-  return {x:snap(px), y:baseY+GRID/2, z:snap(pz), rot:dir, kind:"ladder"};
+  // wall / door / window / ladder: sit on the faced edge of the current tile
+  let x,z,rot;
+  if(ex!==0){ x=homeX+ex*GRID/2; z=homeZ; rot=Math.PI/2; }   // faces X -> panel spans Z
+  else       { x=homeX;          z=homeZ+ez*GRID/2; rot=0; } // faces Z -> panel spans X
+  const kind = buildPiece;
+  return {x, y:baseY+GRID/2, z, rot, kind};
 }
 const TURRET_COST=30;
 function pieceCost(kind){ return kind==="turret"?TURRET_COST:10; }   // all in wood 🪵
@@ -766,20 +772,21 @@ function placeStructure(){
   const s={mesh, hp:150, maxHp:150, kind:p.kind, wood:true, upgraded:false, ...p};
   const alongX = Math.abs(Math.sin(p.rot))<0.5;   // unrotated piece spans X, thin in Z
   const HT=WALL_T/2;                               // collider matches the wall exactly: GRID wide × WALL_T thick
+  const base=p.y-GRID/2, top=p.y+GRID/2;           // vertical extent (height-aware collision)
   const wallCol=()=> alongX
-    ? {minx:p.x-GRID/2,maxx:p.x+GRID/2,minz:p.z-HT,maxz:p.z+HT,top:p.y+GRID/2}
-    : {minx:p.x-HT,maxx:p.x+HT,minz:p.z-GRID/2,maxz:p.z+GRID/2,top:p.y+GRID/2};
+    ? {minx:p.x-GRID/2,maxx:p.x+GRID/2,minz:p.z-HT,maxz:p.z+HT,base,top}
+    : {minx:p.x-HT,maxx:p.x+HT,minz:p.z-GRID/2,maxz:p.z+GRID/2,base,top};
   if(p.kind==="wall" || p.kind==="window"){
     s.col=wallCol();                              // window has a sill -> blocks walking
   } else if(p.kind==="door"){
     // two side posts with a walkable gap between them
     const off=GRID/2-0.6;
     if(alongX){
-      s.cols=[ {minx:p.x-off-0.6,maxx:p.x-off+0.6,minz:p.z-HT,maxz:p.z+HT},
-               {minx:p.x+off-0.6,maxx:p.x+off+0.6,minz:p.z-HT,maxz:p.z+HT} ];
+      s.cols=[ {minx:p.x-off-0.6,maxx:p.x-off+0.6,minz:p.z-HT,maxz:p.z+HT,base,top},
+               {minx:p.x+off-0.6,maxx:p.x+off+0.6,minz:p.z-HT,maxz:p.z+HT,base,top} ];
     } else {
-      s.cols=[ {minx:p.x-HT,maxx:p.x+HT,minz:p.z-off-0.6,maxz:p.z-off+0.6},
-               {minx:p.x-HT,maxx:p.x+HT,minz:p.z+off-0.6,maxz:p.z+off+0.6} ];
+      s.cols=[ {minx:p.x-HT,maxx:p.x+HT,minz:p.z-off-0.6,maxz:p.z-off+0.6,base,top},
+               {minx:p.x-HT,maxx:p.x+HT,minz:p.z+off-0.6,maxz:p.z+off+0.6,base,top} ];
     }
   } else if(p.kind==="floor"){
     s.floorTop=p.y+WALL_T/2; s.fminx=p.x-GRID/2; s.fmaxx=p.x+GRID/2; s.fminz=p.z-GRID/2; s.fmaxz=p.z+GRID/2;
@@ -963,8 +970,14 @@ function updateStorm(dt){
 //  Collision helpers
 // ===================================================================
 function resolveHoriz(px,pz){
-  // circle radius PLAYER_R vs all AABB colliders
-  const check=(minx,maxx,minz,maxz)=>{
+  const py=player.pos.y;
+  // circle radius PLAYER_R vs all AABB colliders. base/top => height-aware:
+  // if you're standing on top of a piece (or fully below it) it doesn't block.
+  const check=(minx,maxx,minz,maxz,base,top)=>{
+    if(base!==undefined){
+      if(py >= top-0.35) return;          // standing on / above the piece's top
+      if(py+PLAYER_H <= base+0.05) return; // entirely below it
+    }
     const cx=clamp(px,minx,maxx), cz=clamp(pz,minz,maxz);
     const dx=px-cx, dz=pz-cz, d2=dx*dx+dz*dz;
     if(d2>1e-7){
@@ -981,20 +994,28 @@ function resolveHoriz(px,pz){
   };
   // two passes so corners (two walls meeting) resolve cleanly instead of squeezing through
   for(let pass=0; pass<2; pass++){
-    for(const c of worldColliders) check(c.minx,c.maxx,c.minz,c.maxz);
+    for(const c of worldColliders) check(c.minx,c.maxx,c.minz,c.maxz);  // world = full height
     for(const s of structures){
-      if(s.col) check(s.col.minx,s.col.maxx,s.col.minz,s.col.maxz);
-      if(s.cols) for(const c of s.cols) check(c.minx,c.maxx,c.minz,c.maxz);
+      if(s.col) check(s.col.minx,s.col.maxx,s.col.minz,s.col.maxz,s.col.base,s.col.top);
+      if(s.cols) for(const c of s.cols) check(c.minx,c.maxx,c.minz,c.maxz,c.base,c.top);
     }
   }
   return [px,pz];
 }
 function groundHeightAt(x,z){
   let g=0;
-  // floors give a standable top
+  const py=player.pos.y;
   for(const s of structures){
+    // floors: standable top surface
     if(s.kind==="floor" && x>=s.fminx&&x<=s.fmaxx&&z>=s.fminz&&z<=s.fmaxz){
-      if(s.floorTop<=player.pos.y+1.2) g=Math.max(g,s.floorTop);
+      if(s.floorTop<=py+1.2) g=Math.max(g,s.floorTop);
+    }
+    // wall / window / door tops are standable too (you can walk on top of walls)
+    if(s.col && s.col.top!==undefined && x>=s.col.minx&&x<=s.col.maxx&&z>=s.col.minz&&z<=s.col.maxz){
+      if(s.col.top<=py+1.2) g=Math.max(g,s.col.top);
+    }
+    if(s.cols) for(const c of s.cols){
+      if(c.top!==undefined && x>=c.minx&&x<=c.maxx&&z>=c.minz&&z<=c.maxz && c.top<=py+1.2) g=Math.max(g,c.top);
     }
   }
   return g;
