@@ -300,11 +300,11 @@ function makeHouse(cx, cz, w, d){
   const wallMat=new THREE.MeshStandardMaterial({color:0xb08d57,roughness:.95});
   const roofMat=new THREE.MeshStandardMaterial({color:0x8a3b2e,roughness:.9});
   const H=6, t=0.5;
-  const seg=(x,z,hx,hz,h,y)=>{
+  const seg=(x,z,hx,hz,h,y,noCol)=>{
     const m=new THREE.Mesh(new THREE.BoxGeometry(hx*2,h,hz*2),wallMat);
     m.position.set(x,y+h/2,z); m.castShadow=m.receiveShadow=true;
     staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
-    addBoxCollider(x,z,hx,hz);
+    if(!noCol) addBoxCollider(x,z,hx,hz);   // colliders are 2D (all heights) — skip for overhead pieces
   };
   // back + sides
   seg(cx, cz-d, w, t, H, 0);
@@ -313,7 +313,7 @@ function makeHouse(cx, cz, w, d){
   // front with doorway (two pillars)
   seg(cx-w*0.62, cz+d, w*0.38, t, H, 0);
   seg(cx+w*0.62, cz+d, w*0.38, t, H, 0);
-  seg(cx, cz+d, w*0.24, t, H*0.35, H*0.65); // lintel
+  seg(cx, cz+d, w*0.24, t, H*0.35, H*0.65, true); // lintel — overhead, no collider so you can walk under
   // floor + roof
   const fl=new THREE.Mesh(new THREE.BoxGeometry(w*2,0.3,d*2),wallMat);
   fl.position.set(cx,0.15,cz); fl.receiveShadow=true; staticGroup.add(fl); fl.updateMatrixWorld(); bulletMeshes.push(fl);
@@ -741,10 +741,11 @@ function spawnBots(){
     const wkeys=WORDER.slice(0, 2+Math.floor(rand(0,4)));
     const bot={
       mesh, x, z, y:0, vy:0, onGround:true,
-      hp:70+rand(0,40), maxHp:110, alive:true,
-      speed:rand(4,6.5), state:"wander", wt:0, wx:x, wz:z,
+      hp:55+rand(0,35), maxHp:90, alive:true,          // weaker bots
+      speed:rand(3.6,5.6), state:"wander", wt:0, wx:x, wz:z,
       weapon: WEAPONS[wkeys[Math.floor(rand(0,wkeys.length))]],
-      shootT:rand(0,1.5), aggro:rand(50,95), hitFlash:0,
+      shootT:rand(0,1.5), aggro:rand(42,72), hitFlash:0,
+      los:false, losT:rand(0,0.4),                     // line-of-sight cache
     };
     drawHB(bot); bots.push(bot);
   }
@@ -1201,24 +1202,29 @@ function startReload(){
 }
 
 // bot shooting (hitscan with LOS)
+// True if the bot has a clear line of sight to the player (blocked by walls/structures).
+function botHasLOS(b){
+  const origin=new THREE.Vector3(b.x, b.y+1.6, b.z);
+  const target=new THREE.Vector3(player.pos.x, player.pos.y+1.2, player.pos.z);
+  const dir=target.clone().sub(origin); const dist=dir.length(); dir.normalize();
+  raycaster.set(origin,dir); raycaster.far=dist-0.5;
+  const walls=bulletMeshes.slice(); for(const s of structures) walls.push(s.mesh);
+  const h=raycaster.intersectObjects(walls,true);
+  return !(h.length && h[0].distance<dist-0.6);   // something solid in the way => no LOS
+}
 function botShoot(b){
   const dx=player.pos.x-b.x, dz=player.pos.z-b.z;
   const dist=Math.hypot(dx,dz);
-  if(dist>Math.min(b.weapon.range,110)) return;
+  if(dist>Math.min(b.weapon.range,90)) return;
+  if(!b.los) return;                                 // never shoot through walls
   const origin=new THREE.Vector3(b.x, b.y+1.6, b.z);
   const target=new THREE.Vector3(player.pos.x, player.pos.y+1.2, player.pos.z);
-  const dir=target.clone().sub(origin).normalize();
-  // LOS check against structures + world
-  raycaster.set(origin,dir); raycaster.far=dist;
-  const walls=bulletMeshes.slice(); for(const s of structures) walls.push(s.mesh);
-  const h=raycaster.intersectObjects(walls,true);
-  if(h.length && h[0].distance<dist-1) { tracer(origin, h[0].point, 0xff6a6a); return; } // blocked
-  // spread by distance
-  const acc=b.weapon.spread + dist*0.0006;
-  if(Math.random() < 0.55 - acc*2){ // hit chance
-    damagePlayer(b.weapon.dmg*rand(0.6,1.0), false);
+  // weaker bots: capped damage + lower accuracy
+  const acc=b.weapon.spread + dist*0.0009;
+  if(Math.random() < 0.34 - acc*2){                  // hit chance (was 0.55)
+    const bd=Math.min(b.weapon.dmg,20)*rand(0.35,0.7);
+    damagePlayer(bd, false);
   }
-  const endp=target.clone().add(dir.multiplyScalar(0));
   tracer(origin, target, 0xff6a6a);
 }
 
@@ -1592,21 +1598,29 @@ function update(dt){
   }
 
   // ---- Bots ----
-  let botShootBudget=6; // limit raycasts per frame
+  let botShootBudget=6, losBudget=8; // limit raycasts per frame
   for(const b of bots){
     if(!b.alive) continue;
     if(b.hitFlash>0){ b.hitFlash-=dt*60; }
     const dxp=player.pos.x-b.x, dzp=player.pos.z-b.z;
     const dp=Math.hypot(dxp,dzp);
     const inStorm=Math.hypot(b.x-storm.cx,b.z-storm.cz)>storm.radius;
+    // refresh line-of-sight (throttled + budgeted)
+    b.losT-=dt;
+    if(b.losT<=0){
+      if(player.alive && dp<b.aggro+8 && losBudget>0){ losBudget--; b.los=botHasLOS(b); b.losT=0.25+rand(0,0.2); }
+      else { b.los=false; b.losT=0.3; }
+    }
+    const canSee = player.alive && dp<b.aggro && (b.los || dp<12); // very close = "hears" you
     let tx,tz;
     if(inStorm){ tx=storm.cx; tz=storm.cz; b.state="flee"; }
-    else if(player.alive && dp<b.aggro){
+    else if(canSee){
       b.state="chase";
       if(dp>28){ tx=player.pos.x; tz=player.pos.z; }
       else if(dp<12){ tx=b.x-dxp; tz=b.z-dzp; }
       else { const perp=Math.atan2(dzp,dxp)+Math.PI/2; tx=b.x+Math.cos(perp)*10; tz=b.z+Math.sin(perp)*10; }
     } else {
+      b.state="wander";
       b.wt-=dt;
       if(b.wt<=0){ b.wx=b.x+rand(-40,40); b.wz=b.z+rand(-40,40); b.wt=rand(2,4); }
       tx=b.wx; tz=b.wz;
