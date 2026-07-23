@@ -67,6 +67,10 @@ Every match starts with a **helicopter drop**: you skydive from ~130m, free-fall
 
 Four **enemy helicopters** patrol the sky each match (orange blips on the minimap). Shoot one down — it takes sustained fire — and it **drops a Bazooka 🚀** that parachutes... well, plummets to the ground. Pick it up (slot **8**) and fire rockets that fly out and **explode on impact**, dealing splash damage to enemies, structures, and other helis. Mind the blast radius — it can hurt you too.
 
+## 🌲 Procedural world
+
+The island is **procedurally generated** from a random seed each time the page loads, so every world is different. A value-noise **forest-density field** clusters ~460 trees into real woods and clearings (two tree types — pines and round oaks), while rocks gather in the sparser patches. Reload for a fresh map.
+
 ## 🌪️ Battle royale systems
 
 - **Shrinking Storm** — a purple zone that closes in over multiple phases and damages anyone caught outside.
