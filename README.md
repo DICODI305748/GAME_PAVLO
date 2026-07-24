@@ -98,7 +98,7 @@ Weapon fire, reloads, hitmarkers and turret shots are all synthesized in-browser
 
 ### 🎵 Apocalypse soundtrack
 
-The background music is a real **post-apocalyptic dark-ambient soundtrack**. A calm, desolate track ("Empty World") plays by **day**, and it **crossfades into a tenser, dread-filled track ("Meteor Strike") when night falls**, easing back at dawn. The `.ogg` files live in [`music/`](music/) and are bundled with the game, so it works offline. Press **M** to toggle it.
+The background music is a real **post-apocalyptic dark-ambient soundtrack**. A calm, desolate track ("Empty World") plays by **day**, and it **crossfades into a tenser, dread-filled track ("Meteor Strike") when night falls**, easing back at dawn. The tracks live in [`music/`](music/) bundled with the game (so it works offline) as both **`.mp3` and `.ogg`** — the game auto-picks whichever the browser supports, so it plays everywhere including **Safari/iOS**. Press **M** to toggle it.
 
 **Music credit:** composed by **Kaelin Bougneit**, from the [CDDA Music Pack](https://github.com/onura46/Kaelin-Bougneit-CDDA-Music-Pack), licensed **CC-BY-SA-4.0** and used unmodified. See [`music/CREDITS.md`](music/CREDITS.md) for full attribution. More of the artist's work: [bandcamp](https://kaelinbougneit.bandcamp.com/).
 

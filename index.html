@@ -1618,10 +1618,19 @@ const MUSIC_VOL=0.6;
 const music={ on:true, ready:false, day:null, night:null, want:null, fades:new Map() };
 function loadMusic(){
   if(music.ready) return;
-  music.day  = new Audio("music/day_empty_world.ogg");       // "Empty World"
-  music.night= new Audio("music/night_meteor_strike.ogg");   // "Meteor Strike"
+  // mp3 plays on every browser (incl. Safari/iOS); ogg only where supported
+  const probe=document.createElement("audio");
+  const ext=(probe.canPlayType && probe.canPlayType("audio/mpeg")!=="") ? "mp3" : "ogg";
+  music.day  = new Audio("music/day_empty_world."+ext);       // "Empty World"
+  music.night= new Audio("music/night_meteor_strike."+ext);   // "Meteor Strike"
   for(const a of [music.day,music.night]){ a.loop=true; a.volume=0; a.preload="auto"; }
   music.ready=true;
+}
+// If the browser blocked autoplay, resume the wanted track on a user gesture
+function kickMusic(){
+  if(music.on && music.ready && music.want && music.want.paused){
+    const p=music.want.play(); if(p&&p.catch) p.catch(()=>{});
+  }
 }
 function fadeAudio(a,to,ms){
   if(!a) return;
@@ -2054,7 +2063,7 @@ addEventListener("keyup",e=>{ keys[e.code]=false; });
 let mouseDown=false;
 renderer.domElement.addEventListener("mousedown",e=>{
   if(!running) return;
-  initAudio();
+  initAudio(); kickMusic();          // safety net if autoplay was blocked
   if(document.pointerLockElement!==renderer.domElement){ renderer.domElement.requestPointerLock(); return; }
   mouseDown=true;
   if(player.skydiving) return;   // no shooting while parachuting in
