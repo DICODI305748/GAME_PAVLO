@@ -66,6 +66,7 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 | **Mouse wheel** | Cycle weapons |
 | **R** | Reload |
 | **E** | Open a chest · harvest trees/rocks with pickaxe/axe for materials |
+| **M** | Toggle the background music on / off |
 
 ## 🚗 Vehicles, turrets & harvesting tools
 
@@ -94,6 +95,10 @@ Switch to Build mode (**B**) and place textured pieces: **walls, doors** (walk t
 ## 🔊 Sound
 
 Weapon fire, reloads, hitmarkers and turret shots are all synthesized in-browser with the Web Audio API — no external audio files, works fully offline. Each weapon has its own report (punchy pistol, snappy SMG, boomy shotgun, cracking sniper).
+
+### 🎵 Apocalypse ambience
+
+The **background music is fully procedural too** — a dark, rainy-apocalypse soundtrack built live from Web Audio nodes: a detuned low A-minor drone, gusty brown-noise wind, a slow heartbeat pulse and sparse, eerie minor-key notes over a breathing low-pass filter. When **night falls the heartbeat quickens, the notes come thicker and dread swells creep in**, then it eases back at dawn. No audio files, works offline. Press **M** to toggle it.
 
 ## 🚁 Helicopter deploy + locations
 
