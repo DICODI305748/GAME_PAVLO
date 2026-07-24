@@ -39,6 +39,13 @@ wss.on("connection", (ws) => {
       return;
     }
 
+    // Server discovery: reply how many players are already in a room (no join).
+    if (msg.t === "find") {
+      const set = rooms.get(String(msg.room || ""));
+      ws.send(JSON.stringify({ t: "findresult", room: msg.room, count: set ? set.size : 0 }));
+      return;
+    }
+
     if (!ws.room) return;
     // relay everything else to the rest of the room, tagged with sender id
     msg.from = ws.id;

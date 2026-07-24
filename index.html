@@ -167,18 +167,35 @@
   </div>
 
   <div id="coopBox" style="display:none;margin-top:18px;background:rgba(20,28,60,.6);border:1px solid rgba(34,195,255,.4);border-radius:12px;padding:14px 20px;max-width:580px">
-    <div style="color:#7fe0ff;letter-spacing:1px;margin-bottom:8px">🌐 ОНЛАЙН-КООПЕРАТИВ</div>
-    <p style="font-size:13px;color:#b9c6f0;line-height:1.5;margin-bottom:10px">Через інтернет: підніми сервер (<code style="color:#ffd54a">npm start</code>) і зроби його публічним — напр. <code style="color:#ffd54a">cloudflared tunnel --url http://localhost:8080</code> або безкоштовний хостинг (Render/Railway). Встав отриману <b>wss://</b>-адресу нижче. Локально (один ПК/мережа) лиши <code style="color:#ffd54a">ws://localhost:8080</code>.</p>
-    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:8px">
+    <div style="color:#7fe0ff;letter-spacing:1px;margin-bottom:10px">🌐 ОНЛАЙН-КООПЕРАТИВ</div>
+
+    <!-- Create a server -->
+    <div style="background:rgba(12,18,40,.55);border:1px solid rgba(255,213,74,.35);border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="color:#ffd54a;font-weight:bold;margin-bottom:8px">➕ Зробити сервер</div>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        <input id="mkName" maxlength="24" placeholder="назва сервера" style="padding:9px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:180px">
+        <input id="mkPass" maxlength="24" placeholder="пароль" style="padding:9px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:130px">
+        <button id="mkBtn" style="font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,#ffd54a,#ff9d5c);border:none;border-radius:8px;padding:9px 18px;cursor:pointer">Зробити сервер</button>
+      </div>
+    </div>
+
+    <!-- Find a server -->
+    <div style="background:rgba(12,18,40,.55);border:1px solid rgba(34,195,255,.35);border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="color:#7fe0ff;font-weight:bold;margin-bottom:8px">🔍 Знайти сервер</div>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        <input id="fnName" maxlength="24" placeholder="назва сервера" style="padding:9px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:180px">
+        <input id="fnPass" maxlength="24" placeholder="пароль сервера" style="padding:9px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:130px">
+        <button id="fnBtn" style="font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,#22c3ff,#5ee0b0);border:none;border-radius:8px;padding:9px 18px;cursor:pointer">🔍 Шукати</button>
+      </div>
+    </div>
+
+    <!-- Advanced: server address (only needed to play over the internet) -->
+    <details style="margin-bottom:6px;text-align:left">
+      <summary style="cursor:pointer;color:#9fb0e0;font-size:12px">⚙ Адреса сервера (для гри через інтернет)</summary>
+      <p style="font-size:12px;color:#b9c6f0;line-height:1.5;margin:8px 0">Підніми relay-сервер (<code style="color:#ffd54a">npm start</code>) і зроби його публічним — напр. <code style="color:#ffd54a">cloudflared tunnel --url http://localhost:8080</code> або хостинг (Render/Railway). Встав отриману <b>wss://</b>-адресу. Локально (один ПК/мережа) лиши <code style="color:#ffd54a">ws://localhost:8080</code>. Обидва гравці мають вказати ОДНАКОВУ адресу.</p>
       <input id="serverInput" placeholder="адреса сервера (wss://...)" style="padding:9px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:280px">
-    </div>
-    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:8px">
-      <button id="createBtn" style="font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,#ffd54a,#ff9d5c);border:none;border-radius:8px;padding:10px 20px;cursor:pointer">➕ Створити гру</button>
-    </div>
-    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-      <input id="roomInput" placeholder="код кімнати друга" style="padding:9px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:170px">
-      <button id="onlineBtn" style="font:inherit;font-weight:bold;color:#05070f;background:linear-gradient(90deg,#22c3ff,#5ee0b0);border:none;border-radius:8px;padding:9px 18px;cursor:pointer">Зайти</button>
-    </div>
+    </details>
+
     <p id="onlineNow" style="font-size:13px;color:#5ee0b0;margin-top:10px;line-height:1.5"></p>
     <button id="copyLinkBtn" style="display:none;font:inherit;color:#7fe0ff;background:none;border:1px solid #3b4a86;border-radius:8px;padding:6px 14px;cursor:pointer;margin-top:6px">🔗 Скопіювати лінк для друга</button>
   </div>
@@ -249,6 +266,7 @@ const snap=(v)=>Math.round(v/GRID)*GRID;
 // seeds the world so everyone in the room gets the SAME map.
 const NETP = new URLSearchParams(location.search);
 const ROOM = NETP.get("room");
+const NAME = NETP.get("name") || "";        // human-friendly server name (co-op)
 const SERVER_URL = NETP.get("server") || ((location.protocol==="https:"?"wss://":"ws://")+(location.hostname||"localhost")+":8080");
 const ONLINE = !!ROOM;
 function hashStr(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
@@ -2568,34 +2586,73 @@ function endGame(victory){
   setTimeout(()=>end.classList.remove("hidden"),600);
 }
 
-// Online room UI: joining reloads the page with ?room= so the world seed matches.
+// Online co-op UI: a server is identified by (name + password). Both players type
+// the same pair, which hashes to the same relay room + world seed, so they meet.
+// Joining reloads the page with ?room=&name= so the seed and title match.
 (function(){
   const box=document.getElementById("coopBox"), coopBtn=document.getElementById("coopBtn");
-  const inp=document.getElementById("roomInput"), btn=document.getElementById("onlineBtn");
-  const srv=document.getElementById("serverInput");
-  const createBtn=document.getElementById("createBtn"), now=document.getElementById("onlineNow");
+  const srv=document.getElementById("serverInput"), now=document.getElementById("onlineNow");
   const copyBtn=document.getElementById("copyLinkBtn");
-  if(srv) srv.value=SERVER_URL;   // prefill with current/default server
-  const joinRoom=(code)=>{ const u=new URL(location.href); u.searchParams.set("room",code);
-    const s=(srv&&srv.value||"").trim(); if(s) u.searchParams.set("server",s); else u.searchParams.delete("server");
+  const mkName=document.getElementById("mkName"), mkPass=document.getElementById("mkPass"), mkBtn=document.getElementById("mkBtn");
+  const fnName=document.getElementById("fnName"), fnPass=document.getElementById("fnPass"), fnBtn=document.getElementById("fnBtn");
+  if(srv) srv.value=SERVER_URL;   // prefill with current/default server address
+
+  const say=(col,txt)=>{ now.style.color=col; now.textContent=txt; };
+  const serverAddr=()=> (srv&&srv.value||"").trim() || SERVER_URL;
+  // deterministic room id from name+password (case-insensitive name)
+  const roomId=(name,pass)=> "s"+hashStr((name||"").trim().toLowerCase()+"|"+(pass||"")).toString(36);
+  const go=(code,name)=>{ const u=new URL(location.href);
+    u.searchParams.set("room",code);
+    if(name) u.searchParams.set("name",name); else u.searchParams.delete("name");
+    const s=serverAddr(); if(s) u.searchParams.set("server",s); else u.searchParams.delete("server");
     location.href=u.toString(); };
 
-  createBtn.addEventListener("click",()=>{ joinRoom(String(1000+Math.floor(Math.random()*9000))); });
-  btn.addEventListener("click",()=>{ const code=(inp.value||"").trim(); if(!code){ now.textContent="Введи код кімнати друга."; return; } joinRoom(code); });
+  // --- Make a server ---
+  mkBtn.addEventListener("click",()=>{
+    const n=(mkName.value||"").trim(), p=(mkPass.value||"").trim();
+    if(!n){ say("#ff8a8a","Введи назву сервера."); return; }
+    if(!p){ say("#ff8a8a","Введи пароль."); return; }
+    go(roomId(n,p), n);
+  });
+
+  // --- Find a server (probe the relay for occupancy, then join) ---
+  fnBtn.addEventListener("click",()=>{
+    const n=(fnName.value||"").trim(), p=(fnPass.value||"").trim();
+    if(!n){ say("#ff8a8a","Введи назву сервера."); return; }
+    if(!p){ say("#ff8a8a","Введи пароль сервера."); return; }
+    const code=roomId(n,p);
+    say("#7fe0ff","🔍 Шукаю сервер «"+n+"»…"); fnBtn.disabled=true;
+    let ws=null, done=false;
+    const finish=(join,col,txt)=>{ if(done) return; done=true; fnBtn.disabled=false;
+      try{ ws&&ws.close(); }catch(e){}
+      if(join){ go(code,n); } else { say(col,txt); } };
+    try{ ws=new WebSocket(serverAddr()); }catch(e){ ws=null; }
+    if(!ws){ finish(false,"#ff8a8a","Не вдалося з'єднатися. Перевір адресу сервера в ⚙."); return; }
+    const to=setTimeout(()=>finish(false,"#ff8a8a","Сервер не відповідає. Перевір адресу в ⚙ (обидва мають вказати ту саму)."),4500);
+    ws.onopen=()=>{ try{ ws.send(JSON.stringify({t:"find",room:code})); }catch(e){} };
+    ws.onmessage=(ev)=>{ let m; try{ m=JSON.parse(ev.data); }catch(e){ return; }
+      if(m.t==="findresult" && m.room===code){ clearTimeout(to);
+        if(m.count>0) finish(true,"#5ee0b0","✅ Знайдено! Заходжу…");
+        else finish(false,"#ff8a8a","❌ Сервер «"+n+"» не знайдено. Перевір назву/пароль, або хай хост підніме його (кнопка «Грати»).");
+      } };
+    ws.onerror=()=>{ clearTimeout(to); finish(false,"#ff8a8a","Помилка з'єднання із сервером. Перевір адресу в ⚙."); };
+  });
 
   if(ONLINE){
-    // already in a room: the green button starts the co-op game
+    // already targeting a room: the green button starts (and hosts) the co-op game
     box.style.display="block";
     const link=location.href;
-    now.innerHTML="✅ Кімната <b style='color:#ffd54a'>"+ROOM+"</b>. Надішли другові код або лінк, і тисни зелену кнопку:";
+    now.style.color="#5ee0b0";
+    now.innerHTML = "✅ Сервер "+(NAME?("<b style='color:#ffd54a'>"+NAME+"</b> "):"")+
+      "готовий. Тисни зелену кнопку «Грати» — <b>поки ти в грі, друзі зможуть його знайти</b> (та сама назва + пароль у «Знайти»).";
+    if(mkName && NAME) mkName.value=NAME;
     copyBtn.style.display="inline-block";
     copyBtn.addEventListener("click",()=>{ (navigator.clipboard?navigator.clipboard.writeText(link):Promise.reject())
       .then(()=>copyBtn.textContent="✅ Скопійовано!").catch(()=>{ now.innerHTML+="<br><span style='color:#9fb0e0'>"+link+"</span>"; }); });
-    if(inp) inp.value=ROOM;
     coopBtn.textContent="🌐 Грати в кооперативі";
     coopBtn.addEventListener("click",()=>{ initAudio(); startGame(); });
   } else {
-    // not in a room yet: the green button just reveals the co-op panel
+    // not targeting a room yet: the green button just reveals the co-op panel
     coopBtn.addEventListener("click",()=>{ box.style.display = box.style.display==="none"?"block":"none"; });
   }
 })();

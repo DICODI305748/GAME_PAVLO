@@ -11,10 +11,16 @@ npm install     # installs `ws`
 npm start        # starts the co-op server on ws://localhost:8080
 ```
 
-Then open the game and use the **🌐 Online co-op** box on the start screen: type a **room code** and click **Зайти онлайн**. Everyone who joins the **same room code and server** shares the same procedurally generated map (the room code seeds the world), sees each other move, **builds a base together**, and fights the **same zombie horde** (the first player in the room is the host and owns the zombie simulation).
+Then open the game and press **🌐 Кооператив** on the start screen. A server is identified by a **name + password**:
 
-- To join a specific server, append `?room=CODE&server=ws://HOST:8080` to the URL (the co-op panel has a **server address** field that fills this in and bakes it into the shareable link).
-- The offline single-player game still works exactly as before if you don't enter a room.
+- **➕ Зробити сервер** — type a **server name** and a **password**, click **Зробити сервер**, then press the green **Грати** button. While you're in the game your server is live and findable.
+- **🔍 Знайти сервер** — a friend types the **same name and password**, clicks **🔍 Шукати**. The game pings the relay: if that server is up it joins straight in, otherwise it says it wasn't found (check the name/password, or ask the host to press Play).
+
+The name+password pair hashes to a shared room that also **seeds the world**, so everyone on the same server gets the **same procedurally generated map**, sees each other move, **builds a base together**, and fights the **same zombie horde** (the first player in is the host and owns the zombie simulation).
+
+- To play over the internet, open **⚙ Адреса сервера** and paste your public `wss://` address — **both players must use the same one**. Locally leave `ws://localhost:8080`.
+- Sharing the auto-generated link (🔗) lets a friend join without typing anything — it carries the room + server (the password is baked into the room hash, so the link works without revealing it).
+- The offline single-player game still works exactly as before if you don't create/join a server.
 
 ### Playing over the internet
 
