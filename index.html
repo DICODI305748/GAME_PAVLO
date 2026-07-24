@@ -1369,6 +1369,7 @@ function spawnWave(night){
       hp:hpBase*rand(0.85,1.2), maxHp:hpBase*1.2,
       speed:spd*rand(0.85,1.15), dmg:dmgBase*rand(0.85,1.15),
       atkT:0, hitFlash:0, target:null, wobble:rand(0,6.28),
+      follow:0, steer:0,
     };
     drawHB(z0); bots.push(z0);
   }
@@ -2352,24 +2353,45 @@ function update(dt){
     b.atkT-=dt; b.wobble+=dt*6;
     const dxp=player.pos.x-b.x, dzp=player.pos.z-b.z;
     const dp=Math.hypot(dxp,dzp);
-    const a=Math.atan2(dzp,dxp);       // always march toward the player
-    let bnx=b.x+Math.cos(a)*b.speed*dt;
-    let bnz=b.z+Math.sin(a)*b.speed*dt;
-    // blocked by a wall/structure? smash it.
-    const br=0.6; let blockedStruct=null, blockedWorld=false;
-    for(const s of structures){
-      const cols = s.col?[s.col]:(s.cols||[]);
-      for(const c of cols){ if(bnx>c.minx-br&&bnx<c.maxx+br&&bnz>c.minz-br&&bnz<c.maxz+br){ blockedStruct=s; break; } }
-      if(blockedStruct) break;
-    }
-    if(!blockedStruct) for(const c of worldColliders){
-      if(bnx>c.minx-br&&bnx<c.maxx+br&&bnz>c.minz-br&&bnz<c.maxz+br){ blockedWorld=true; break; }
-    }
-    if(blockedStruct){
-      if(b.atkT<=0){ b.atkT=0.8; blockedStruct.hp-=b.dmg*1.6; burst(b.x+Math.cos(a),1.4,b.z+Math.sin(a),0xc9a76a,3);
-        if(blockedStruct.hp<=0) destroyStructure(blockedStruct); }
-    } else if(!blockedWorld){
-      b.x=clamp(bnx,-WORLD+2,WORLD-2); b.z=clamp(bnz,-WORLD+2,WORLD-2);
+    const a=Math.atan2(dzp,dxp);       // desired heading: toward the player
+    const br=0.6, step=b.speed*dt;
+    // gather only nearby obstacles once (cheap steering around them)
+    const nearW=[], nearS=[];
+    for(const c of worldColliders){ const cx=(c.minx+c.maxx)*0.5, cz=(c.minz+c.maxz)*0.5;
+      if(Math.abs(cx-b.x)<9 && Math.abs(cz-b.z)<9) nearW.push(c); }
+    for(const s of structures){ if(Math.abs((s.x||s.mesh.position.x)-b.x)<9 && Math.abs((s.z||s.mesh.position.z)-b.z)<9) nearS.push(s); }
+    const blockedAt=(nx,nz)=>{
+      for(const s of nearS){ const cols=s.col?[s.col]:(s.cols||[]);
+        for(const c of cols){ if(nx>c.minx-br&&nx<c.maxx+br&&nz>c.minz-br&&nz<c.maxz+br) return s; } }
+      for(const c of nearW){ if(nx>c.minx-br&&nx<c.maxx+br&&nz>c.minz-br&&nz<c.maxz+br) return true; }
+      return null;
+    };
+    const moveTo=(ang)=>{ b.x=clamp(b.x+Math.cos(ang)*step,-WORLD+2,WORLD-2); b.z=clamp(b.z+Math.sin(ang)*step,-WORLD+2,WORLD-2); };
+    // first free heading found by sweeping away from `a` on side `sd`; returns {ang,k} or null
+    const sweep=(sd)=>{ for(let k=1;k<=7;k++){ const ang=a+sd*k*0.42;
+        if(!blockedAt(b.x+Math.cos(ang)*step, b.z+Math.sin(ang)*step)) return {ang,k}; } return null; };
+    const dirHit = blockedAt(b.x+Math.cos(a)*step, b.z+Math.sin(a)*step);
+    if(!dirHit){
+      moveTo(a);                                  // clear ahead — walk straight at the player
+      b.steer=0;                                  // free again: forget which way we were rounding
+    } else {
+      // blocked: slide ALONG the obstacle. Pick a side only on the free->blocked
+      // transition, then COMMIT to it until we're clear again (no per-frame flip).
+      const frontStruct=(dirHit!==true)?dirHit:null;
+      let mv=null;
+      if(b.steer){                                 // already rounding — keep the same side
+        mv=sweep(b.steer) || sweep(-b.steer);
+      } else {                                      // just hit it — choose the side that turns least toward the player
+        const L=sweep(1), R=sweep(-1);
+        if(L&&R){ b.steer = (L.k<=R.k)?1:-1; mv = (L.k<=R.k)?L:R; }
+        else if(L){ b.steer=1; mv=L; }
+        else if(R){ b.steer=-1; mv=R; }
+      }
+      if(mv){ moveTo(mv.ang); }
+      // fully boxed in by a structure -> smash the one straight ahead
+      else if(frontStruct && b.atkT<=0){ b.atkT=0.8; frontStruct.hp-=b.dmg*1.6;
+        burst(b.x+Math.cos(a),1.4,b.z+Math.sin(a),0xc9a76a,3);
+        if(frontStruct.hp<=0) destroyStructure(frontStruct); }
     }
     b.mesh.position.set(b.x,b.y,b.z);
     b.mesh.rotation.y=-a+Math.PI/2 + Math.sin(b.wobble)*0.12;
