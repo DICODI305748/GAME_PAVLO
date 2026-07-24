@@ -156,8 +156,10 @@
       <b>🔨</b><span>Стіл крафта став на <b>металеву підлогу</b> — там крафтиш усю зброю (старт без зброї!)</span>
       <b>E</b><span>Скриня / стіл крафта / <b>відчинити-зачинити двері</b> · сокирою бий дерева, кіркою — каміння/руду</span>
       <b>F</b><span>Машина 🚗 · <b>R</b> перезарядка · збий вертоліт → базука 🚀</span>
+      <b>M</b><span>Увімкнути / вимкнути фонову музику 🎵</span>
     </div>
     <p style="margin-top:12px;color:#9fb0e0;font-size:13px">Натисни кнопку, потім клікни по екрану щоб захопити мишу. <b>Esc</b> — відпустити.</p>
+    <p style="margin-top:8px;color:#6b7aa8;font-size:11px">🎵 Музика: Kaelin Bougneit — «Empty World», «Meteor Strike» (CC-BY-SA 4.0), <a href="https://kaelinbougneit.bandcamp.com/" target="_blank" style="color:#8fa0d0">bandcamp</a></p>
   </div>
   <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:6px">
     <button class="play" id="startBtn">🎮 Одиночна гра</button>
@@ -1608,93 +1610,43 @@ function playBlip(freq,v){
 }
 
 // ===================================================================
-//  Background music — procedural dark "rainy apocalypse" ambience
-//  (all synthesized, no external files; tenser at night)
+//  Background music — real post-apocalyptic ambient tracks
+//  Music by Kaelin Bougneit (CC-BY-SA-4.0), from the CDDA music pack.
+//  Calm desolate track by day, tense dread track by night (crossfaded).
 // ===================================================================
-const music={ on:true, started:false, master:null, filter:null, nodes:[], next:0, beat:0, timer:null };
-let _windBuf=null;
-function getWind(){
-  if(_windBuf) return _windBuf;
-  const sr=audioCtx.sampleRate, b=audioCtx.createBuffer(1,Math.floor(sr*2.4),sr), d=b.getChannelData(0);
-  let last=0;                                     // brown-ish noise = low, gusty wind
-  for(let i=0;i<d.length;i++){ last=last*0.96+(Math.random()*2-1)*0.04; d[i]=last*3.2; }
-  _windBuf=b; return b;
+const MUSIC_VOL=0.6;
+const music={ on:true, ready:false, day:null, night:null, want:null, fades:new Map() };
+function loadMusic(){
+  if(music.ready) return;
+  music.day  = new Audio("music/day_empty_world.ogg");       // "Empty World"
+  music.night= new Audio("music/night_meteor_strike.ogg");   // "Meteor Strike"
+  for(const a of [music.day,music.night]){ a.loop=true; a.volume=0; a.preload="auto"; }
+  music.ready=true;
 }
-const MSCALE=[0,2,3,5,7,8,10,12];                 // A natural minor
-function noteFreq(semi){ return 55*Math.pow(2,semi/12); }   // root A1=55Hz
-
-function startMusic(){
-  if(!audioCtx || music.started || !music.on) return;
-  music.started=true;
-  const t=audioCtx.currentTime;
-  const g=audioCtx.createGain(); g.gain.value=0.0001; g.gain.setTargetAtTime(0.33,t,3.5); // slow fade-in
-  const flt=audioCtx.createBiquadFilter(); flt.type="lowpass"; flt.frequency.value=680; flt.Q.value=0.6;
-  flt.connect(g); g.connect(audioCtx.destination);
-  music.master=g; music.filter=flt;
-  // breathing filter sweep
-  const lfo=audioCtx.createOscillator(), lg=audioCtx.createGain();
-  lfo.type="sine"; lfo.frequency.value=0.045; lg.gain.value=320; lfo.connect(lg); lg.connect(flt.frequency); lfo.start(t);
-  music.nodes.push(lfo);
-  // low detuned drone chord (A minor)
-  const droneF=[55,82.41,65.41,110], dg=audioCtx.createGain(); dg.gain.value=0.42; dg.connect(flt);
-  for(let i=0;i<droneF.length;i++){ const o=audioCtx.createOscillator();
-    o.type=i%2?"sine":"sawtooth"; o.frequency.value=droneF[i]; o.detune.value=(i-1.5)*7;
-    o.connect(dg); o.start(t); music.nodes.push(o); }
-  // gusty wind bed
-  const wind=audioCtx.createBufferSource(); wind.buffer=getWind(); wind.loop=true;
-  const wf=audioCtx.createBiquadFilter(); wf.type="bandpass"; wf.frequency.value=430; wf.Q.value=0.7;
-  const wg=audioCtx.createGain(); wg.gain.value=0.06;
-  const wl=audioCtx.createOscillator(), wlg=audioCtx.createGain();
-  wl.type="sine"; wl.frequency.value=0.07; wlg.gain.value=190; wl.connect(wlg); wlg.connect(wf.frequency); wl.start(t);
-  wind.connect(wf); wf.connect(wg); wg.connect(flt); wind.start(t);
-  music.nodes.push(wind,wl);
-  // note scheduler
-  music.next=t+0.6; music.beat=0;
-  music.timer=setInterval(schedMusic,120);
+function fadeAudio(a,to,ms){
+  if(!a) return;
+  if(music.fades.has(a)){ clearInterval(music.fades.get(a)); music.fades.delete(a); }
+  if(to>0 && a.paused){ const p=a.play(); if(p&&p.catch) p.catch(()=>{}); }
+  const from=a.volume, t0=performance.now();
+  const id=setInterval(()=>{
+    const k=Math.min(1,(performance.now()-t0)/ms);
+    a.volume=Math.max(0,Math.min(1, from+(to-from)*k));
+    if(k>=1){ clearInterval(id); music.fades.delete(a);
+      if(to<=0){ a.pause(); try{a.currentTime=0;}catch(e){} } }
+  },50);
+  music.fades.set(a,id);
 }
-function schedMusic(){
-  if(!audioCtx || !music.started) return;
-  const now=audioCtx.currentTime;
+function updateMusic(){
+  if(!music.ready || !music.on) return;
   const night=(typeof phase!=="undefined" && phase==="night");
-  const beatLen=night?0.95:1.45;                  // heartbeat quickens at night
-  while(music.next<now+0.35){
-    const t=music.next; music.beat++;
-    heartbeat(t, night?0.5:0.34);                 // "lub"
-    heartbeat(t+beatLen*0.26, night?0.3:0.18);    // "dub"
-    if(Math.random()<(night?0.55:0.32)){          // sparse eerie note
-      const semi=MSCALE[Math.floor(Math.random()*MSCALE.length)] + (Math.random()<0.4?24:12);
-      pluck(t+beatLen*0.5*Math.random(), noteFreq(semi), night?0.1:0.06);
-    }
-    if(night && music.beat%8===0) swell(t);        // dread swell each phrase
-    music.next+=beatLen;
-  }
+  const want = night?music.night:music.day, other = night?music.day:music.night;
+  if(music.want===want) return;                    // nothing changed
+  music.want=want;
+  fadeAudio(other,0,1500);
+  fadeAudio(want,MUSIC_VOL,2500);
 }
-function heartbeat(t,v){
-  const o=audioCtx.createOscillator(), g=audioCtx.createGain(); o.type="sine";
-  o.frequency.setValueAtTime(72,t); o.frequency.exponentialRampToValueAtTime(38,t+0.18);
-  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(v,t+0.02); g.gain.exponentialRampToValueAtTime(0.001,t+0.33);
-  o.connect(g); g.connect(music.master); o.start(t); o.stop(t+0.36);
-}
-function pluck(t,freq,v){
-  const o=audioCtx.createOscillator(), g=audioCtx.createGain(), f=audioCtx.createBiquadFilter();
-  o.type="triangle"; o.frequency.value=freq; f.type="lowpass"; f.frequency.value=freq*4;
-  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(v,t+0.04); g.gain.exponentialRampToValueAtTime(0.0005,t+2.4);
-  o.connect(f); f.connect(g); g.connect(music.filter); o.start(t); o.stop(t+2.5);
-}
-function swell(t){
-  const o=audioCtx.createOscillator(), g=audioCtx.createGain(); o.type="sawtooth"; o.frequency.value=noteFreq(12);
-  g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.12,t+1.6); g.gain.exponentialRampToValueAtTime(0.001,t+4.2);
-  o.connect(g); g.connect(music.filter); o.start(t); o.stop(t+4.4);
-}
-function stopMusic(){
-  if(!music.started) return;
-  const t=audioCtx?audioCtx.currentTime:0;
-  if(music.master) music.master.gain.setTargetAtTime(0.0001,t,0.5);
-  if(music.timer) clearInterval(music.timer);
-  const dead=music.nodes.slice();
-  setTimeout(()=>{ for(const n of dead){ try{n.stop();}catch(e){} } },1600);
-  music.started=false; music.nodes=[]; music.timer=null; music.master=null; music.filter=null;
-}
+function startMusic(){ if(!music.on) return; loadMusic(); music.want=null; updateMusic(); }
+function stopMusic(){ music.want=null; if(music.day) fadeAudio(music.day,0,700); if(music.night) fadeAudio(music.night,0,700); }
 function toggleMusic(){
   music.on=!music.on;
   if(music.on){ startMusic(); } else { stopMusic(); }
@@ -2547,6 +2499,7 @@ function loop(ts){
   if(!running) return;
   const dt=Math.min(0.05,(ts-lastTime)/1000||0); lastTime=ts;
   update(dt);
+  updateMusic();                          // swap day/night ambience on phase change
   // refresh the shadow map every other frame (~30Hz) instead of every frame
   renderer.shadowMap.needsUpdate = ((_frame++ & 1) === 0);
   renderer.render(scene,camera);

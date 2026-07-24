@@ -96,9 +96,11 @@ Switch to Build mode (**B**) and place textured pieces: **walls, doors** (walk t
 
 Weapon fire, reloads, hitmarkers and turret shots are all synthesized in-browser with the Web Audio API — no external audio files, works fully offline. Each weapon has its own report (punchy pistol, snappy SMG, boomy shotgun, cracking sniper).
 
-### 🎵 Apocalypse ambience
+### 🎵 Apocalypse soundtrack
 
-The **background music is fully procedural too** — a dark, rainy-apocalypse soundtrack built live from Web Audio nodes: a detuned low A-minor drone, gusty brown-noise wind, a slow heartbeat pulse and sparse, eerie minor-key notes over a breathing low-pass filter. When **night falls the heartbeat quickens, the notes come thicker and dread swells creep in**, then it eases back at dawn. No audio files, works offline. Press **M** to toggle it.
+The background music is a real **post-apocalyptic dark-ambient soundtrack**. A calm, desolate track ("Empty World") plays by **day**, and it **crossfades into a tenser, dread-filled track ("Meteor Strike") when night falls**, easing back at dawn. The `.ogg` files live in [`music/`](music/) and are bundled with the game, so it works offline. Press **M** to toggle it.
+
+**Music credit:** composed by **Kaelin Bougneit**, from the [CDDA Music Pack](https://github.com/onura46/Kaelin-Bougneit-CDDA-Music-Pack), licensed **CC-BY-SA-4.0** and used unmodified. See [`music/CREDITS.md`](music/CREDITS.md) for full attribution. More of the artist's work: [bandcamp](https://kaelinbougneit.bandcamp.com/).
 
 ## 🚁 Helicopter deploy + locations
 
