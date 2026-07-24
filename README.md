@@ -4,7 +4,11 @@ A **3D first-person zombie survival** game in a single HTML file, built with [Th
 
 ## 🌐 Online co-op (optional)
 
-Play with friends on a shared map. You need to run the tiny relay server once:
+Play with friends on a shared map. You need the tiny relay server running.
+
+**Easiest (no terminal):** double-click **`СТАРТ.bat`** (Windows) or **`СТАРТ-mac-linux.command`** (Mac/Linux). It checks for Node.js, installs the dependency on first run, and starts the server for you. Keep the window open while you play.
+
+**Or manually:**
 
 ```bash
 npm install     # installs `ws`
