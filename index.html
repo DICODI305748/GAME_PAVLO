@@ -426,7 +426,7 @@ function makeIronOre(x,z,s){
 // Procedural placement: a forest-density field (fbm noise) makes trees cluster
 // into woods and clearings; rocks & iron ore gather in the low-density (rockier) patches.
 let treeCount=0, rockCount=0, ironCount=0;
-const STEP=18, TREE_CAP=650;                    // bigger island: more trees than before, but capped for performance
+const STEP=17, TREE_CAP=1150;                   // trees everywhere across the island (capped for performance)
 for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
   for(let gz=-WORLD+18; gz<WORLD-18; gz+=STEP){
     const n=fbm(gx*0.006, gz*0.006);           // 0..1 forest density (larger-scale woods)
@@ -434,9 +434,10 @@ for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
     const rad=Math.hypot(jx,jz);
     if(rad<MTN_R+40) continue;                  // keep the central mountain clear
     if(rad>WORLD-16) continue;                  // keep trees/rocks on land, not in the sea
-    if(treeCount<TREE_CAP && wrand() < (n-0.46)*1.9){  // dense woods where n is high
+    // trees grow ALL OVER the island now (base chance everywhere, denser in the woods)
+    if(treeCount<TREE_CAP && wrand() < 0.22+n*0.55){
       makeTree(jx,jz,wrand); treeCount++;
-    } else if(n<0.34 && wrand()<0.12){          // rocky patches
+    } else if(n<0.34 && wrand()<0.14){          // rocky patches in the clearings
       if(wrand()<0.28){ makeIronOre(jx,jz, wr(2.5,5)); ironCount++; }  // some are iron ore
       else { makeRock(jx,jz, wr(2,6)); rockCount++; }
     }
@@ -539,6 +540,45 @@ function ruggedPeak(x,z,rad,h,snowline){
   m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
   return m;
 }
+// An "internet" comms station on the summit: a hut + a banded lattice tower with a dish
+function makeInternetTower(cx,topY,cz){
+  const g=new THREE.Group(); g.position.set(cx,topY,cz);
+  const nofog=(m)=>{ m.fog=false; return m; };
+  // snowy platform to seat the station on the pointed summit
+  const plat=new THREE.Mesh(new THREE.CylinderGeometry(16,18,4,12),
+    nofog(new THREE.MeshStandardMaterial({color:0xdfe6ee,roughness:1,flatShading:true})));
+  plat.position.y=-1; plat.castShadow=plat.receiveShadow=true; g.add(plat); plat.updateMatrixWorld(); bulletMeshes.push(plat);
+  // station hut
+  const hutMat=nofog(new THREE.MeshStandardMaterial({color:0xc9d0d8,roughness:.9}));
+  const hut=new THREE.Mesh(new THREE.BoxGeometry(9,5,7),hutMat); hut.position.set(-4,3.5,2); hut.castShadow=true; g.add(hut); hut.updateMatrixWorld(); bulletMeshes.push(hut);
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(7.2,3,4),nofog(new THREE.MeshStandardMaterial({color:0x9a3b34,roughness:.9})));
+  roof.position.set(-4,7.5,2); roof.rotation.y=Math.PI/4; roof.castShadow=true; g.add(roof);
+  const door=new THREE.Mesh(new THREE.PlaneGeometry(1.6,3),nofog(new THREE.MeshStandardMaterial({color:0x2a2f3a})));
+  door.position.set(-4,2.5,5.51); g.add(door);
+  // satellite dish on the hut (internet!)
+  const dish=new THREE.Mesh(new THREE.SphereGeometry(2.4,14,8,0,Math.PI*2,0,Math.PI*0.45),
+    nofog(new THREE.MeshStandardMaterial({color:0xeef2f6,side:THREE.DoubleSide,roughness:.7})));
+  dish.position.set(-1,8,3); dish.rotation.set(-0.9,0.4,0); dish.castShadow=true; g.add(dish);
+  // lattice tower — red/white banded, tapering
+  const towerBaseY=1.5, towerH=78, seg=9, hEach=towerH/seg;
+  const red=nofog(new THREE.MeshStandardMaterial({color:0xd23b3b,roughness:.6,metalness:.2}));
+  const white=nofog(new THREE.MeshStandardMaterial({color:0xeef2f6,roughness:.6}));
+  for(let s=0;s<seg;s++){
+    const rb=6*(1-s/seg)+0.8, rt=6*(1-(s+1)/seg)+0.8;
+    const m=new THREE.Mesh(new THREE.CylinderGeometry(rt*0.5,rb*0.5,hEach,4,1,true), s%2?white:red);
+    m.position.y=towerBaseY+hEach*(s+0.5); m.rotation.y=Math.PI/4; m.castShadow=true; g.add(m);
+    if(s===0){ m.updateMatrixWorld(); bulletMeshes.push(m); }
+  }
+  // antenna whips + a red beacon at the very top
+  const top=towerBaseY+towerH;
+  for(const off of [0,0.6,-0.6]){ const w=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,7,4),
+    nofog(new THREE.MeshStandardMaterial({color:0xbfc6d0,metalness:.5,roughness:.4})));
+    w.position.set(off,top+3.5,0); g.add(w); }
+  const beacon=new THREE.Mesh(new THREE.SphereGeometry(0.7,10,10),
+    nofog(new THREE.MeshStandardMaterial({color:0xff3b3b,emissive:0xff2020,emissiveIntensity:1})));
+  beacon.position.y=top+7.4; g.add(beacon);
+  staticGroup.add(g);
+}
 function makeGiantMountain(cx,cz,R,H){
   ruggedPeak(cx,cz,R,H,0.34);                        // main snowy massif
   ruggedPeak(cx+R*0.20,cz-R*0.12,R*0.52,H*0.82,0.42);// secondary ridge poking out
@@ -551,7 +591,12 @@ function makeGiantMountain(cx,cz,R,H){
     m.position.set(fx,fh/2,fz); m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
     addBoxCollider(fx,fz,frad*0.55,frad*0.55);
   }
-  addBoxCollider(cx,cz,R*0.6,R*0.6);                 // impassable core
+  // ---- Solid collision matching the round base (a ring of boxes + filled centre) ----
+  const RC=R*0.9, N=16, hs=(2*Math.PI*RC/N)*0.62;
+  for(let i=0;i<N;i++){ const a=i/N*6.28; addBoxCollider(cx+Math.cos(a)*RC, cz+Math.sin(a)*RC, hs, hs); }
+  addBoxCollider(cx,cz,R*0.5,R*0.5);                 // fill the middle so the peak is fully impassable
+  // internet comms station on the summit
+  makeInternetTower(cx, H, cz);
 }
 makeGiantMountain(0,0, MTN_R, WORLD*0.32);        // ~R190, ~H320 — towers over the island
 // smaller peaks ringing the coastline (placed on the island, not in the sea)
