@@ -245,7 +245,16 @@ document.getElementById("loading").style.display = "none";
 //  Constants
 // ===================================================================
 const WORLD = 1000;          // half-extent of the ISLAND (radius) — ~6x the old area
-const MTN_R = WORLD*0.19;     // giant central mountain core radius (~190) — kept clear of trees/loot
+const MTN_R = WORLD*0.19;     // giant central mountain base radius (~190) — kept clear of trees/loot
+const MTN_H = WORLD*0.32;     // mountain height (~320)
+const MTN_FLAT = 20;          // flat summit radius you can stand on (matches the tower platform)
+// Walkable surface height of the mountain at (x,z): a truncated cone you can climb.
+function mountainHeightAt(x,z){
+  const d=Math.hypot(x,z);
+  if(d>=MTN_R) return 0;
+  if(d<=MTN_FLAT) return MTN_H;                       // flat plateau at the very top
+  return MTN_H*(MTN_R-d)/(MTN_R-MTN_FLAT);            // slope down to the ground at the base
+}
 const GRID = 6;               // building grid size (also wall width/height)
 const WALL_T = 0.4;           // wall thickness
 const EYE = 1.65;
@@ -540,65 +549,70 @@ function ruggedPeak(x,z,rad,h,snowline){
   m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
   return m;
 }
-// An "internet" comms station on the summit: a hut + a banded lattice tower with a dish
+// Proper lattice comms tower (v2) + station building on the summit plateau.
 function makeInternetTower(cx,topY,cz){
   const g=new THREE.Group(); g.position.set(cx,topY,cz);
   const nofog=(m)=>{ m.fog=false; return m; };
-  // snowy platform to seat the station on the pointed summit
-  const plat=new THREE.Mesh(new THREE.CylinderGeometry(16,18,4,12),
-    nofog(new THREE.MeshStandardMaterial({color:0xdfe6ee,roughness:1,flatShading:true})));
-  plat.position.y=-1; plat.castShadow=plat.receiveShadow=true; g.add(plat); plat.updateMatrixWorld(); bulletMeshes.push(plat);
-  // station hut
-  const hutMat=nofog(new THREE.MeshStandardMaterial({color:0xc9d0d8,roughness:.9}));
-  const hut=new THREE.Mesh(new THREE.BoxGeometry(9,5,7),hutMat); hut.position.set(-4,3.5,2); hut.castShadow=true; g.add(hut); hut.updateMatrixWorld(); bulletMeshes.push(hut);
-  const roof=new THREE.Mesh(new THREE.ConeGeometry(7.2,3,4),nofog(new THREE.MeshStandardMaterial({color:0x9a3b34,roughness:.9})));
-  roof.position.set(-4,7.5,2); roof.rotation.y=Math.PI/4; roof.castShadow=true; g.add(roof);
-  const door=new THREE.Mesh(new THREE.PlaneGeometry(1.6,3),nofog(new THREE.MeshStandardMaterial({color:0x2a2f3a})));
-  door.position.set(-4,2.5,5.51); g.add(door);
-  // satellite dish on the hut (internet!)
-  const dish=new THREE.Mesh(new THREE.SphereGeometry(2.4,14,8,0,Math.PI*2,0,Math.PI*0.45),
-    nofog(new THREE.MeshStandardMaterial({color:0xeef2f6,side:THREE.DoubleSide,roughness:.7})));
-  dish.position.set(-1,8,3); dish.rotation.set(-0.9,0.4,0); dish.castShadow=true; g.add(dish);
-  // lattice tower — red/white banded, tapering
-  const towerBaseY=1.5, towerH=78, seg=9, hEach=towerH/seg;
-  const red=nofog(new THREE.MeshStandardMaterial({color:0xd23b3b,roughness:.6,metalness:.2}));
+  const red  =nofog(new THREE.MeshStandardMaterial({color:0xd8433b,roughness:.6,metalness:.2}));
   const white=nofog(new THREE.MeshStandardMaterial({color:0xeef2f6,roughness:.6}));
-  for(let s=0;s<seg;s++){
-    const rb=6*(1-s/seg)+0.8, rt=6*(1-(s+1)/seg)+0.8;
-    const m=new THREE.Mesh(new THREE.CylinderGeometry(rt*0.5,rb*0.5,hEach,4,1,true), s%2?white:red);
-    m.position.y=towerBaseY+hEach*(s+0.5); m.rotation.y=Math.PI/4; m.castShadow=true; g.add(m);
-    if(s===0){ m.updateMatrixWorld(); bulletMeshes.push(m); }
+  const steel=nofog(new THREE.MeshStandardMaterial({color:0xaeb6c2,roughness:.5,metalness:.4}));
+  const V=THREE.Vector3, up=new V(0,1,0);
+  // a beam (cylinder) between two local points
+  function strut(a,b,th,mat){ const A=new V(a[0],a[1],a[2]), B=new V(b[0],b[1],b[2]);
+    const d=new V().subVectors(B,A), len=d.length();
+    const m=new THREE.Mesh(new THREE.CylinderGeometry(th,th,len,5),mat);
+    m.position.copy(A).add(B).multiplyScalar(0.5);
+    m.quaternion.setFromUnitVectors(up, d.normalize()); m.castShadow=true; g.add(m); return m; }
+  // snowy foundation slab on the plateau
+  const slab=new THREE.Mesh(new THREE.CylinderGeometry(20,22,5,14),
+    nofog(new THREE.MeshStandardMaterial({color:0xdfe6ee,roughness:1,flatShading:true})));
+  slab.position.y=-2.5; slab.receiveShadow=true; g.add(slab); slab.updateMatrixWorld(); bulletMeshes.push(slab);
+  // --- station building ---
+  const bld=new THREE.Mesh(new THREE.BoxGeometry(12,6,8),nofog(new THREE.MeshStandardMaterial({color:0xd3d9e1,roughness:.9})));
+  bld.position.set(-9,3,3); bld.castShadow=true; g.add(bld); bld.updateMatrixWorld(); bulletMeshes.push(bld);
+  const roof=new THREE.Mesh(new THREE.BoxGeometry(13,0.7,9),nofog(new THREE.MeshStandardMaterial({color:0x3a4454,roughness:.8})));
+  roof.position.set(-9,6.3,3); roof.castShadow=true; g.add(roof);
+  const door=new THREE.Mesh(new THREE.PlaneGeometry(2,3.4),nofog(new THREE.MeshStandardMaterial({color:0x232a36})));
+  door.position.set(-9,1.9,7.02); g.add(door);
+  const glass=nofog(new THREE.MeshStandardMaterial({color:0x8fbcd8,roughness:.4,metalness:.2}));
+  for(const wx of [-13,-5]){ const w=new THREE.Mesh(new THREE.PlaneGeometry(2.4,1.8),glass); w.position.set(wx,3.6,7.02); g.add(w); }
+  // satellite dish on the roof (internet!)
+  const dish=new THREE.Mesh(new THREE.SphereGeometry(3,16,10,0,Math.PI*2,0,Math.PI*0.42),
+    nofog(new THREE.MeshStandardMaterial({color:0xf0f3f7,side:THREE.DoubleSide,roughness:.6})));
+  dish.position.set(-9,9,3); dish.rotation.set(-0.85,0.5,0); dish.castShadow=true; g.add(dish);
+  strut([-9,6.6,3],[-9,9,3],0.18,steel);
+  // --- lattice mast (4 legs + horizontal rings + diagonal bracing) ---
+  const H=88, levels=6, dh=H/levels, y0=1;
+  const halfAt=(f)=>5.6*(1-f)+1.1;                  // wide base, narrow top
+  const corners=(k)=>{ const hw=halfAt(k/levels), y=y0+k*dh;
+    return [[hw,y,hw],[hw,y,-hw],[-hw,y,-hw],[-hw,y,hw]]; };
+  for(let k=0;k<levels;k++){
+    const c0=corners(k), c1=corners(k+1);
+    for(let i=0;i<4;i++) strut(c0[i],c1[i],0.34, k%2?white:red);           // legs
+    for(let i=0;i<4;i++){ const j=(i+1)%4; strut(c0[i],c0[j],0.2,steel); } // ring
+    for(let i=0;i<4;i++){ const j=(i+1)%4;                                  // diagonal brace (zig-zag)
+      if((k+i)%2) strut(c0[i],c1[j],0.15,steel); else strut(c0[j],c1[i],0.15,steel); }
   }
-  // antenna whips + a red beacon at the very top
-  const top=towerBaseY+towerH;
-  for(const off of [0,0.6,-0.6]){ const w=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,7,4),
-    nofog(new THREE.MeshStandardMaterial({color:0xbfc6d0,metalness:.5,roughness:.4})));
-    w.position.set(off,top+3.5,0); g.add(w); }
-  const beacon=new THREE.Mesh(new THREE.SphereGeometry(0.7,10,10),
+  const cT=corners(levels); for(let i=0;i<4;i++){ const j=(i+1)%4; strut(cT[i],cT[j],0.2,steel); }
+  // central mast + antenna whips + red beacon on top
+  const top=y0+H;
+  strut([0,top,0],[0,top+11,0],0.22,steel);
+  for(const o of [[1.4,0],[-1.4,0],[0,1.4],[0,-1.4]]) strut([o[0],top+2,o[1]],[o[0],top+8,o[1]],0.08,steel);
+  const beacon=new THREE.Mesh(new THREE.SphereGeometry(0.85,10,10),
     nofog(new THREE.MeshStandardMaterial({color:0xff3b3b,emissive:0xff2020,emissiveIntensity:1})));
-  beacon.position.y=top+7.4; g.add(beacon);
+  beacon.position.y=top+11.7; g.add(beacon);
   staticGroup.add(g);
+  addBoxCollider(cx-9, cz+3, 6, 4.2);               // the building itself is solid
 }
 function makeGiantMountain(cx,cz,R,H){
+  // CLIMBABLE: the surface is a height field (see mountainHeightAt) — no blocking
+  // colliders, so you can walk up the slope to the summit tower.
   ruggedPeak(cx,cz,R,H,0.34);                        // main snowy massif
-  ruggedPeak(cx+R*0.20,cz-R*0.12,R*0.52,H*0.82,0.42);// secondary ridge poking out
-  ruggedPeak(cx-R*0.22,cz+R*0.18,R*0.44,H*0.64,0.5); // lower rocky shoulder
-  const foot=new THREE.MeshStandardMaterial({color:0x5f636d,roughness:1,flatShading:true}); foot.fog=false;
-  for(let i=0;i<8;i++){                              // grey rocky foothills around the base
-    const a=i/8*6.28+wr(-0.25,0.25), fr=R*wr(0.9,1.1);
-    const fx=cx+Math.cos(a)*fr, fz=cz+Math.sin(a)*fr, fh=H*wr(0.14,0.3), frad=R*wr(0.22,0.36);
-    const m=new THREE.Mesh(new THREE.ConeGeometry(frad,fh,7,1),foot);
-    m.position.set(fx,fh/2,fz); m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
-    addBoxCollider(fx,fz,frad*0.55,frad*0.55);
-  }
-  // ---- Solid collision matching the round base (a ring of boxes + filled centre) ----
-  const RC=R*0.9, N=16, hs=(2*Math.PI*RC/N)*0.62;
-  for(let i=0;i<N;i++){ const a=i/N*6.28; addBoxCollider(cx+Math.cos(a)*RC, cz+Math.sin(a)*RC, hs, hs); }
-  addBoxCollider(cx,cz,R*0.5,R*0.5);                 // fill the middle so the peak is fully impassable
-  // internet comms station on the summit
-  makeInternetTower(cx, H, cz);
+  ruggedPeak(cx+R*0.18,cz-R*0.12,R*0.5,H*0.72,0.42); // secondary ridge (kept under the main cone)
+  ruggedPeak(cx-R*0.20,cz+R*0.16,R*0.42,H*0.56,0.5); // lower rocky shoulder
+  makeInternetTower(cx, H, cz);                      // comms station on the summit
 }
-makeGiantMountain(0,0, MTN_R, WORLD*0.32);        // ~R190, ~H320 — towers over the island
+makeGiantMountain(0,0, MTN_R, MTN_H);            // towers over the island — and you can climb it
 // smaller peaks ringing the coastline (placed on the island, not in the sea)
 {
   const N=10, rr=WORLD-70;
@@ -1672,7 +1686,7 @@ function resolveHoriz(px,pz){
   return [px,pz];
 }
 function groundHeightAt(x,z){
-  let g=0;
+  let g=mountainHeightAt(x,z);          // the central mountain is a climbable slope
   const py=player.pos.y;
   for(const s of structures){
     // floors: standable top surface
@@ -2604,6 +2618,7 @@ function update(dt){
         burst(b.x+Math.cos(a),1.4,b.z+Math.sin(a),0xc9a76a,3);
         if(frontStruct.hp<=0) destroyStructure(frontStruct); }
     }
+    b.y=mountainHeightAt(b.x,b.z);        // zombies climb the mountain too
     b.mesh.position.set(b.x,b.y,b.z);
     b.mesh.rotation.y=-a+Math.PI/2 + Math.sin(b.wobble)*0.12;
     // attack the player when adjacent
