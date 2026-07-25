@@ -512,23 +512,46 @@ function makeMountain(x,z,r,h){
   cap.position.set(x,h-h*0.17,z); cap.castShadow=true; staticGroup.add(cap);
   addBoxCollider(x,z,r*0.5,r*0.5);
 }
-// GIANT mountain dominating the centre of the island — the big landmark
-function makeGiantMountain(cx,cz,R,H){
-  const rock =new THREE.MeshStandardMaterial({color:0x6f727b,roughness:1,flatShading:true});
-  const rock2=new THREE.MeshStandardMaterial({color:0x585b64,roughness:1,flatShading:true});
-  const snow =new THREE.MeshStandardMaterial({color:0xeef3ff,roughness:.75,flatShading:true});
-  rock.fog=rock2.fog=snow.fog=false;             // always visible, even from the far coast
-  const cone=(x,z,rad,h,y,mat)=>{ const m=new THREE.Mesh(new THREE.ConeGeometry(rad,h,10,1),mat);
-    m.position.set(x,y,z); m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m); };
-  cone(cx,cz,R,H,H/2,rock);                       // main massif (base on the ground)
-  cone(cx,cz,R*0.62,H*1.14,H*1.14/2,rock2);       // taller inner peak for a rugged silhouette
-  cone(cx,cz,R*0.30,H*0.44,H*0.88,snow);          // snow cap near the summit
-  for(let i=0;i<8;i++){                           // rugged foothills around the base
-    const a=i/8*6.28+wr(-0.25,0.25), fr=R*wr(0.92,1.08);
-    const fx=cx+Math.cos(a)*fr, fz=cz+Math.sin(a)*fr, fh=H*wr(0.16,0.32), frad=R*wr(0.24,0.38);
-    cone(fx,fz,frad,fh,fh/2,rock); addBoxCollider(fx,fz,frad*0.55,frad*0.55);
+// GIANT mountain dominating the centre of the island — a rugged, snow-covered
+// rocky peak (grey rock low, heavy snow up top) modelled on a real photo.
+const _mtnRock=new THREE.Color(0x565963), _mtnRockHi=new THREE.Color(0x7e828c), _mtnSnow=new THREE.Color(0xf3f7ff);
+function ruggedPeak(x,z,rad,h,snowline){
+  const geo=new THREE.ConeGeometry(rad,h,12,8);      // enough segments to look craggy
+  const p=geo.attributes.position, col=[];
+  for(let i=0;i<p.count;i++){
+    let vx=p.getX(i), vy=p.getY(i), vz=p.getZ(i);
+    const t=(vy+h/2)/h;                              // 0 base .. 1 apex
+    const edge=1-Math.abs(t-0.5)*2;                  // most jitter mid-height, sharp apex/base
+    const jit=1+(wrand()-0.5)*0.5*(1-t*0.7);         // craggy horizontal displacement
+    vx*=jit; vz*=jit; vy+=(wrand()-0.5)*h*0.05*edge; // vertical ruggedness
+    p.setXYZ(i,vx,vy,vz);
+    const line=snowline+(wrand()-0.5)*0.18;          // noisy snow line
+    let c;
+    if(t>line) c=_mtnSnow.clone().lerp(_mtnRockHi, Math.max(0,(1-t))*0.12);   // snowy top
+    else { c=_mtnRock.clone().lerp(_mtnRockHi, wrand()*0.6);                  // rocky base
+      if(wrand()<0.10) c=_mtnSnow.clone().lerp(_mtnRockHi,0.4); }             // stray snow patches
+    col.push(c.r,c.g,c.b);
   }
-  addBoxCollider(cx,cz,R*0.6,R*0.6);              // impassable core
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+  geo.computeVertexNormals();
+  const mat=new THREE.MeshStandardMaterial({vertexColors:true, roughness:1, flatShading:true}); mat.fog=false;
+  const m=new THREE.Mesh(geo,mat); m.position.set(x,h/2,z);
+  m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
+  return m;
+}
+function makeGiantMountain(cx,cz,R,H){
+  ruggedPeak(cx,cz,R,H,0.34);                        // main snowy massif
+  ruggedPeak(cx+R*0.20,cz-R*0.12,R*0.52,H*0.82,0.42);// secondary ridge poking out
+  ruggedPeak(cx-R*0.22,cz+R*0.18,R*0.44,H*0.64,0.5); // lower rocky shoulder
+  const foot=new THREE.MeshStandardMaterial({color:0x5f636d,roughness:1,flatShading:true}); foot.fog=false;
+  for(let i=0;i<8;i++){                              // grey rocky foothills around the base
+    const a=i/8*6.28+wr(-0.25,0.25), fr=R*wr(0.9,1.1);
+    const fx=cx+Math.cos(a)*fr, fz=cz+Math.sin(a)*fr, fh=H*wr(0.14,0.3), frad=R*wr(0.22,0.36);
+    const m=new THREE.Mesh(new THREE.ConeGeometry(frad,fh,7,1),foot);
+    m.position.set(fx,fh/2,fz); m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
+    addBoxCollider(fx,fz,frad*0.55,frad*0.55);
+  }
+  addBoxCollider(cx,cz,R*0.6,R*0.6);                 // impassable core
 }
 makeGiantMountain(0,0, MTN_R, WORLD*0.32);        // ~R190, ~H320 — towers over the island
 // smaller peaks ringing the coastline (placed on the island, not in the sea)
