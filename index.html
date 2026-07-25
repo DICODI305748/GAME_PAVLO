@@ -189,12 +189,7 @@
       </div>
     </div>
 
-    <!-- Advanced: server address (only needed to play over the internet) -->
-    <details style="margin-bottom:6px;text-align:left">
-      <summary style="cursor:pointer;color:#9fb0e0;font-size:12px">⚙ Адреса сервера (для гри через інтернет)</summary>
-      <p style="font-size:12px;color:#b9c6f0;line-height:1.5;margin:8px 0">Підніми relay-сервер (<code style="color:#ffd54a">npm start</code>) і зроби його публічним — напр. <code style="color:#ffd54a">cloudflared tunnel --url http://localhost:8080</code> або хостинг (Render/Railway). Встав отриману <b>wss://</b>-адресу. Локально (один ПК/мережа) лиши <code style="color:#ffd54a">ws://localhost:8080</code>. Обидва гравці мають вказати ОДНАКОВУ адресу.</p>
-      <input id="serverInput" placeholder="адреса сервера (wss://...)" style="padding:9px 12px;border-radius:8px;border:1px solid #3b4a86;background:#141c3c;color:#eef2ff;font:inherit;width:280px">
-    </details>
+    <p style="font-size:12px;color:#8fa0d0;line-height:1.5;margin:2px 0 0">✨ Нічого встановлювати не треба — гравці з'єднуються напряму (P2P). Потрібен лише інтернет. Хост має бути в грі, щоб його могли знайти.</p>
 
     <p id="onlineNow" style="font-size:13px;color:#5ee0b0;margin-top:10px;line-height:1.5"></p>
     <button id="copyLinkBtn" style="display:none;font:inherit;color:#7fe0ff;background:none;border:1px solid #3b4a86;border-radius:8px;padding:6px 14px;cursor:pointer;margin-top:6px">🔗 Скопіювати лінк для друга</button>
@@ -233,6 +228,8 @@ if (typeof THREE === "undefined") {
   document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>');
 }
 </script>
+<!-- PeerJS: peer-to-peer co-op (no server to run). Offline single-player works without it. -->
+<script src="peerjs.min.js"></script>
 <script>
 (() => {
 "use strict";
@@ -262,14 +259,23 @@ const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const snap=(v)=>Math.round(v/GRID)*GRID;
 
 // ---- Procedural world generation (seeded, so each page load is a new world) ----
-// Online co-op: read ?room= and ?server= from the URL. The room code also
-// seeds the world so everyone in the room gets the SAME map.
+// Online co-op is peer-to-peer (PeerJS): players connect directly through a free
+// public broker — NO server to run. ?room= (name+password hash) seeds the world;
+// ?host=1 marks the player who owns the game (host), others are joiners.
 const NETP = new URLSearchParams(location.search);
 const ROOM = NETP.get("room");
 const NAME = NETP.get("name") || "";        // human-friendly server name (co-op)
-const SERVER_URL = NETP.get("server") || ((location.protocol==="https:"?"wss://":"ws://")+(location.hostname||"localhost")+":8080");
+const IS_HOST = NETP.get("host")==="1";     // this tab created the server
 const ONLINE = !!ROOM;
 function hashStr(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+// Deterministic PeerJS id for a room (both players derive the same one).
+const PEER_ID = ROOM ? ("zs"+ROOM) : null;
+// Optional custom PeerJS broker (for local testing: ?peerhost=localhost&peerport=9000&peerpath=/).
+function peerOpts(){
+  const h=NETP.get("peerhost");
+  if(h) return { host:h, port:+(NETP.get("peerport")||9000), path:NETP.get("peerpath")||"/", secure:NETP.get("peersecure")==="1" };
+  return undefined;   // default: the free public PeerJS cloud
+}
 const WORLD_SEED = ONLINE ? hashStr(ROOM) : ((Math.random()*1e9)>>>0);
 function mulberry32(a){ return function(){ a|=0; a=(a+0x6D2B79F5)|0; let t=Math.imul(a^(a>>>15),1|a);
   t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
@@ -792,28 +798,70 @@ let zid=0;   // host-side network id for zombies
 //  Online co-op networking (relay via server.js). Room code seeds the map.
 // ===================================================================
 const net = {
-  ws:null, id:0, host:true, connected:false, online:ONLINE,
+  peer:null, hostConn:null, conns:[], id:0, host:IS_HOST, connected:false, online:ONLINE,
   peers:new Map(),          // peerId -> {mesh, tx,ty,tz, yaw}
-  sendT:0, snapT:0,
+  sendT:0, snapT:0, _nid:1,
   isHost(){ return !this.online || this.host; },   // solo == host of your own game
 
   connect(){
-    if(!this.online) return;
-    try{ this.ws=new WebSocket(SERVER_URL); }catch(e){ netStatus("Помилка з'єднання"); return; }
-    netStatus("З'єднання…");
-    this.ws.onopen=()=>{ this.ws.send(JSON.stringify({t:"join", room:ROOM})); };
-    this.ws.onclose=()=>{ this.connected=false; netStatus("Офлайн (сервер недоступний)"); };
-    this.ws.onerror=()=>{ netStatus("Сервер недоступний — запусти server.js"); };
-    this.ws.onmessage=(e)=>{ let m; try{m=JSON.parse(e.data);}catch{return;} this.onMsg(m); };
+    if(!this.online || typeof Peer==="undefined") return;
+    if(this.host) this._hostStart(); else this._joinStart();
   },
-  send(msg){ if(this.online && this.ws && this.ws.readyState===1){ this.ws.send(JSON.stringify(msg)); } },
+  // HOST: claim the room id on the broker; every other player connects to us.
+  _hostStart(){
+    netStatus("Піднімаю сервер…");
+    try{ this.peer=new Peer(PEER_ID, peerOpts()); }catch(e){ netStatus("Помилка PeerJS"); return; }
+    this.peer.on("open",()=>{ this.connected=true; this.id=1;
+      netStatus("ХОСТ · сервер «"+(NAME||ROOM)+"» онлайн — друзі можуть заходити"); });
+    this.peer.on("connection",(c)=>this._onGuest(c));
+    this.peer.on("error",(e)=>{
+      const t=e&&e.type;
+      if(t==="unavailable-id") netStatus("Ця назва+пароль уже зайняті. Візьми інші або приєднайся як гість.");
+      else netStatus("Мережа недоступна ("+(t||"error")+"). Потрібен інтернет.");
+    });
+  },
+  _onGuest(c){
+    c.on("open",()=>{
+      c._cid=++this._nid; this.conns.push(c);
+      c.send({t:"welcome", id:c._cid});     // give the guest an id
+      this.sendFullBuilds(c);                // share the base built so far
+      netStatus("ХОСТ · гравців: "+(this.conns.length+1));
+    });
+    c.on("data",(m)=>{ if(!m||!m.t) return; m.from=c._cid;
+      this.onMsg(m);                         // host applies it locally
+      this._relay(m, c._cid);                // …then forwards to the OTHER guests
+    });
+    c.on("close",()=>{ this.conns=this.conns.filter(x=>x!==c);
+      this.removePeer(c._cid); this._relay({t:"peerleave", from:c._cid}, c._cid);
+      netStatus("ХОСТ · гравців: "+(this.conns.length+1)); });
+  },
+  _relay(m, exceptCid){ for(const c of this.conns){ if(c._cid!==exceptCid && c.open) c.send(m); } },
+  // GUEST: dial the host's room id directly (peer-to-peer).
+  _joinStart(){
+    netStatus("З'єднання із сервером…");
+    try{ this.peer=new Peer(peerOpts()); }catch(e){ netStatus("Помилка PeerJS"); return; }
+    this.peer.on("open",()=>{
+      const c=this.peer.connect(PEER_ID,{reliable:true}); this.hostConn=c;
+      c.on("open",()=>{ this.connected=true; netStatus("У ГРІ «"+(NAME||ROOM)+"» · ти гість"); });
+      c.on("data",(m)=>{ if(m&&m.t) this.onMsg(m); });
+      c.on("close",()=>{ this.connected=false; netStatus("Хост вийшов — сервер закрито"); });
+    });
+    this.peer.on("error",(e)=>{
+      const t=e&&e.type;
+      if(t==="peer-unavailable") netStatus("Сервер не знайдено (хост зараз не в грі).");
+      else netStatus("Не вдалося під'єднатися ("+(t||"error")+"). Потрібен інтернет.");
+    });
+  },
+  send(msg){
+    if(!this.online || !this.connected) return;
+    if(this.host){ msg.from=1; for(const c of this.conns){ if(c.open) c.send(msg); } }
+    else if(this.hostConn && this.hostConn.open){ this.hostConn.send(msg); }
+  },
 
   onMsg(m){
     switch(m.t){
-      case "welcome": this.id=m.id; this.host=m.host; this.connected=true;
-        netStatus(m.host?("ХОСТ · кімната "+ROOM+" · гравців: "+m.count):("У КІМНАТІ "+ROOM+" · ти гість")); break;
-      case "host": this.host=true; netStatus("Тебе призначено ХОСТОМ"); break;
-      case "peerjoin": if(this.isHost()) this.sendFullBuilds(m.id); break;   // host shares existing base
+      case "welcome": this.id=m.id; this.connected=true;
+        netStatus("У ГРІ «"+(NAME||ROOM)+"» · ти гість"); break;
       case "peerleave": this.removePeer(m.from!=null?m.from:m.id); break;
       case "pos": this.updatePeer(m); break;
       case "build": spawnPiece(m.p, true); break;
@@ -827,8 +875,8 @@ const net = {
         if(b){ b.hp-=m.dmg; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } } break;
     }
   },
-  sendFullBuilds(toId){ for(const s of structures){ if(s.key)
-    this.send({t:"build", p:{kind:s.kind,x:s.x,y:s.y,z:s.z,rot:s.rot||0}}); } },
+  sendFullBuilds(conn){ for(const s of structures){ if(s.key)
+    conn.send({t:"build", from:1, p:{kind:s.kind,x:s.x,y:s.y,z:s.z,rot:s.rot||0}}); } },
 
   updatePeer(m){
     let pr=this.peers.get(m.from);
@@ -2555,7 +2603,7 @@ function startGame(){
   player.pitch=-0.55;                                     // look down
 
   initCycle();                         // day/night: night comes after 5 min
-  if(net.online && !net.ws) net.connect();   // join the co-op room
+  if(net.online && !net.peer) net.connect();   // join the co-op session (P2P)
   spawnChests(); spawnCars(); spawnEnemyHelis(3);   // zombies spawn at night, not now
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
 
@@ -2586,65 +2634,67 @@ function endGame(victory){
   setTimeout(()=>end.classList.remove("hidden"),600);
 }
 
-// Online co-op UI: a server is identified by (name + password). Both players type
-// the same pair, which hashes to the same relay room + world seed, so they meet.
-// Joining reloads the page with ?room=&name= so the seed and title match.
+// Online co-op UI (peer-to-peer, PeerJS): a server = (name + password). Both players
+// type the same pair, which hashes to the same PeerJS id + world seed, so they meet.
+// Create → reload with ?host=1; Find → probe the host id, then reload as a guest.
 (function(){
   const box=document.getElementById("coopBox"), coopBtn=document.getElementById("coopBtn");
-  const srv=document.getElementById("serverInput"), now=document.getElementById("onlineNow");
-  const copyBtn=document.getElementById("copyLinkBtn");
+  const now=document.getElementById("onlineNow"), copyBtn=document.getElementById("copyLinkBtn");
   const mkName=document.getElementById("mkName"), mkPass=document.getElementById("mkPass"), mkBtn=document.getElementById("mkBtn");
   const fnName=document.getElementById("fnName"), fnPass=document.getElementById("fnPass"), fnBtn=document.getElementById("fnBtn");
-  if(srv) srv.value=SERVER_URL;   // prefill with current/default server address
 
   const say=(col,txt)=>{ now.style.color=col; now.textContent=txt; };
-  const serverAddr=()=> (srv&&srv.value||"").trim() || SERVER_URL;
   // deterministic room id from name+password (case-insensitive name)
   const roomId=(name,pass)=> "s"+hashStr((name||"").trim().toLowerCase()+"|"+(pass||"")).toString(36);
-  const go=(code,name)=>{ const u=new URL(location.href);
+  const go=(code,name,asHost)=>{ const u=new URL(location.href);
     u.searchParams.set("room",code);
     if(name) u.searchParams.set("name",name); else u.searchParams.delete("name");
-    const s=serverAddr(); if(s) u.searchParams.set("server",s); else u.searchParams.delete("server");
+    if(asHost) u.searchParams.set("host","1"); else u.searchParams.delete("host");
     location.href=u.toString(); };
 
-  // --- Make a server ---
+  // --- Make a server (become the host) ---
   mkBtn.addEventListener("click",()=>{
     const n=(mkName.value||"").trim(), p=(mkPass.value||"").trim();
     if(!n){ say("#ff8a8a","Введи назву сервера."); return; }
     if(!p){ say("#ff8a8a","Введи пароль."); return; }
-    go(roomId(n,p), n);
+    go(roomId(n,p), n, true);
   });
 
-  // --- Find a server (probe the relay for occupancy, then join) ---
+  // --- Find a server: dial the host's peer id; if it answers, join as a guest ---
   fnBtn.addEventListener("click",()=>{
+    if(typeof Peer==="undefined"){ say("#ff8a8a","Онлайн недоступний (не завантажилась бібліотека PeerJS)."); return; }
     const n=(fnName.value||"").trim(), p=(fnPass.value||"").trim();
     if(!n){ say("#ff8a8a","Введи назву сервера."); return; }
     if(!p){ say("#ff8a8a","Введи пароль сервера."); return; }
-    const code=roomId(n,p);
+    const code=roomId(n,p), hostId="zs"+code;
     say("#7fe0ff","🔍 Шукаю сервер «"+n+"»…"); fnBtn.disabled=true;
-    let ws=null, done=false;
+    let peer=null, done=false;
     const finish=(join,col,txt)=>{ if(done) return; done=true; fnBtn.disabled=false;
-      try{ ws&&ws.close(); }catch(e){}
-      if(join){ go(code,n); } else { say(col,txt); } };
-    try{ ws=new WebSocket(serverAddr()); }catch(e){ ws=null; }
-    if(!ws){ finish(false,"#ff8a8a","Не вдалося з'єднатися. Перевір адресу сервера в ⚙."); return; }
-    const to=setTimeout(()=>finish(false,"#ff8a8a","Сервер не відповідає. Перевір адресу в ⚙ (обидва мають вказати ту саму)."),4500);
-    ws.onopen=()=>{ try{ ws.send(JSON.stringify({t:"find",room:code})); }catch(e){} };
-    ws.onmessage=(ev)=>{ let m; try{ m=JSON.parse(ev.data); }catch(e){ return; }
-      if(m.t==="findresult" && m.room===code){ clearTimeout(to);
-        if(m.count>0) finish(true,"#5ee0b0","✅ Знайдено! Заходжу…");
-        else finish(false,"#ff8a8a","❌ Сервер «"+n+"» не знайдено. Перевір назву/пароль, або хай хост підніме його (кнопка «Грати»).");
-      } };
-    ws.onerror=()=>{ clearTimeout(to); finish(false,"#ff8a8a","Помилка з'єднання із сервером. Перевір адресу в ⚙."); };
+      try{ peer&&peer.destroy(); }catch(e){}
+      if(join){ go(code,n,false); } else { say(col,txt); } };
+    try{ peer=new Peer(peerOpts()); }catch(e){ finish(false,"#ff8a8a","Помилка PeerJS."); return; }
+    const to=setTimeout(()=>finish(false,"#ff8a8a","Сервер не відповідає. Перевір інтернет, або хай хост зайде в гру."),9000);
+    peer.on("open",()=>{
+      const c=peer.connect(hostId,{reliable:true});
+      c.on("open",()=>{ clearTimeout(to); finish(true,"#5ee0b0","✅ Знайдено! Заходжу…"); });
+      c.on("error",()=>{});   // handled by peer 'error'
+    });
+    peer.on("error",(e)=>{ clearTimeout(to);
+      if(e&&e.type==="peer-unavailable") finish(false,"#ff8a8a","❌ Сервер «"+n+"» не знайдено. Перевір назву/пароль, або хай хост зайде в гру (кнопка «Грати»).");
+      else finish(false,"#ff8a8a","Не вдалося під'єднатися ("+(e&&e.type||"error")+"). Потрібен інтернет.");
+    });
   });
 
   if(ONLINE){
-    // already targeting a room: the green button starts (and hosts) the co-op game
+    // already targeting a room: the green button starts the co-op game
     box.style.display="block";
-    const link=location.href;
+    // shareable link is always a GUEST link (drop host=1) so a friend joins, not double-hosts
+    const lu=new URL(location.href); lu.searchParams.delete("host");
+    const link=lu.toString();
     now.style.color="#5ee0b0";
-    now.innerHTML = "✅ Сервер "+(NAME?("<b style='color:#ffd54a'>"+NAME+"</b> "):"")+
-      "готовий. Тисни зелену кнопку «Грати» — <b>поки ти в грі, друзі зможуть його знайти</b> (та сама назва + пароль у «Знайти»).";
+    now.innerHTML = IS_HOST
+      ? ("✅ Сервер "+(NAME?("<b style='color:#ffd54a'>"+NAME+"</b> "):"")+"готовий. Тисни зелену кнопку «Грати» — <b>поки ти в грі, друзі зможуть його знайти</b> (та сама назва + пароль у «Знайти»).")
+      : ("🔗 Заходиш на сервер "+(NAME?("<b style='color:#ffd54a'>"+NAME+"</b> "):"")+"як гість. Тисни зелену кнопку «Грати».");
     if(mkName && NAME) mkName.value=NAME;
     copyBtn.style.display="inline-block";
     copyBtn.addEventListener("click",()=>{ (navigator.clipboard?navigator.clipboard.writeText(link):Promise.reject())

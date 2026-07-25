@@ -2,39 +2,21 @@
 
 A **3D first-person zombie survival** game in a single HTML file, built with [Three.js](https://threejs.org). Explore a **procedurally generated** world (forests, mountains, a shop, a ТЦК and randomized landmarks), gather **wood 🪵, stone 🪨 and metal 🔩**, and build a fortified base with Fortnite-style pieces. **Every 5 minutes night falls** and a horde of zombies swarms in from the edges — and they **smash through your walls**. Each night there are more of them and they hit harder. Upgrade your walls **wood → stone → metal**, plant **torches and spikes**, mount **turrets**, and survive as many nights as you can.
 
-## 🌐 Online co-op (optional)
+## 🌐 Online co-op — peer-to-peer, no server to run
 
-Play with friends on a shared map. You need the tiny relay server running.
+Play with friends on a shared map with **nothing to install and no server to start**. Co-op is **peer-to-peer** (WebRTC via [PeerJS](https://peerjs.com)): players connect directly to each other through PeerJS's free public broker. You just need an internet connection.
 
-**Easiest (no terminal):** double-click **`СТАРТ.bat`** (Windows) or **`СТАРТ-mac-linux.command`** (Mac/Linux). It checks for Node.js, installs the dependency on first run, and starts the server for you. Keep the window open while you play.
+Open the game and press **🌐 Кооператив** on the start screen. A server is identified by a **name + password**:
 
-**Or manually:**
+- **➕ Зробити сервер** — type a **server name** and a **password**, click **Зробити сервер**, then press the green **Грати** button. You become the **host** — while you're in the game, friends can find and join you.
+- **🔍 Знайти сервер** — a friend types the **same name and password** and clicks **🔍 Шукати**. The game dials the host directly: if the host is in the game it joins straight in, otherwise it says the server wasn't found (check the name/password, or ask the host to press **Грати** first).
 
-```bash
-npm install     # installs `ws`
-npm start        # starts the co-op server on ws://localhost:8080
-```
+The name+password pair hashes to a shared PeerJS id that also **seeds the world**, so everyone on the same server gets the **same procedurally generated map**, sees each other move, **builds a base together**, and fights the **same zombie horde**. The **host** owns the zombie/day-night simulation and relays everyone's moves and builds to the other players (a star topology — the host is the hub).
 
-Then open the game and press **🌐 Кооператив** on the start screen. A server is identified by a **name + password**:
+- Sharing the auto-generated **🔗 link** lets a friend join without typing anything — it carries the room and name (the password is baked into the hashed id, so the link works without revealing it, and it always joins as a **guest**).
+- The offline single-player game works exactly as before if you don't create/join a server.
 
-- **➕ Зробити сервер** — type a **server name** and a **password**, click **Зробити сервер**, then press the green **Грати** button. While you're in the game your server is live and findable.
-- **🔍 Знайти сервер** — a friend types the **same name and password**, clicks **🔍 Шукати**. The game pings the relay: if that server is up it joins straight in, otherwise it says it wasn't found (check the name/password, or ask the host to press Play).
-
-The name+password pair hashes to a shared room that also **seeds the world**, so everyone on the same server gets the **same procedurally generated map**, sees each other move, **builds a base together**, and fights the **same zombie horde** (the first player in is the host and owns the zombie simulation).
-
-- To play over the internet, open **⚙ Адреса сервера** and paste your public `wss://` address — **both players must use the same one**. Locally leave `ws://localhost:8080`.
-- Sharing the auto-generated link (🔗) lets a friend join without typing anything — it carries the room + server (the password is baked into the room hash, so the link works without revealing it).
-- The offline single-player game still works exactly as before if you don't create/join a server.
-
-### Playing over the internet
-
-`localhost` only works on one machine. To play with friends elsewhere, make the server reachable from the internet and give the client a **`wss://`** URL (a page served over HTTPS can only connect to secure `wss://`):
-
-1. **Easiest — a tunnel from your PC.** Run the server (`npm start`), then in another terminal:
-   - Cloudflare: `cloudflared tunnel --url http://localhost:8080` → gives an `https://…trycloudflare.com` URL; use it as `wss://…trycloudflare.com`.
-   - or `npx localtunnel --port 8080`, or `ngrok http 8080`.
-2. **Free cloud host (permanent).** Deploy `server.js` to Render / Railway / Fly.io (it already listens on `process.env.PORT`). You get a `wss://your-app.onrender.com` URL.
-3. Host the game page itself somewhere friends can open it (GitHub Pages / Netlify — it's just `index.html` + `three.min.js`), open the **🌐 Кооператив** panel, paste your `wss://` address into **server address**, click **Створити гру**, and send the generated link (it carries the room code **and** the server address).
+> **Note:** peer-to-peer connects directly between players, which works on most home networks. On some strict/corporate networks (symmetric NAT with no relay) a direct connection can't be established — that's a limitation of free P2P without a paid TURN relay.
 
 ## 🌙 Day / night survival loop
 
