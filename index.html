@@ -244,7 +244,8 @@ document.getElementById("loading").style.display = "none";
 // ===================================================================
 //  Constants
 // ===================================================================
-const WORLD = 400;            // half-extent of playfield (map is 800x800)
+const WORLD = 1000;          // half-extent of the ISLAND (radius) — ~6x the old area
+const MTN_R = WORLD*0.19;     // giant central mountain core radius (~190) — kept clear of trees/loot
 const GRID = 6;               // building grid size (also wall width/height)
 const WALL_T = 0.4;           // wall thickness
 const EYE = 1.65;
@@ -304,9 +305,9 @@ document.getElementById("app").appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8fb7e8);
-scene.fog = new THREE.Fog(0x9fc0e8, 120, 360);   // tighter fog so distant geometry is culled cheaply
+scene.fog = new THREE.Fog(0x9fc0e8, 300, 820);   // bigger island: fog pushed out; the giant mountain ignores fog
 
-const camera = new THREE.PerspectiveCamera(72, innerWidth/innerHeight, 0.2, 480);  // shorter far plane
+const camera = new THREE.PerspectiveCamera(72, innerWidth/innerHeight, 0.2, 1150);  // reaches the giant central mountain from across the island
 scene.add(camera);
 
 addEventListener("resize", ()=>{
@@ -342,36 +343,30 @@ function addBoxCollider(cx, cz, hx, hz){
   return c;
 }
 
-// Ground
+// ---- Island: round green landmass + sandy beach ring + surrounding ocean ----
 {
-  const g = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD*2, WORLD*2, 1, 1),
-    new THREE.MeshStandardMaterial({color:0x4b7a3a, roughness:1})
-  );
-  g.rotation.x = -Math.PI/2;
-  g.receiveShadow = true;
-  staticGroup.add(g);
-  bulletMeshes.push(g);
+  // ocean — a huge plane under everything, fades into the fog at the horizon
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(WORLD*3, WORLD*3),
+    new THREE.MeshStandardMaterial({color:0x2a6cb0, roughness:.45, metalness:.05}));
+  sea.rotation.x=-Math.PI/2; sea.position.y=-1.6; staticGroup.add(sea);
 
-  // subtle patchwork tiles for depth
+  // sandy beach ring, a touch larger than the island
+  const beach = new THREE.Mesh(new THREE.CircleGeometry(WORLD*1.06, 80),
+    new THREE.MeshStandardMaterial({color:0xd8c98a, roughness:1}));
+  beach.rotation.x=-Math.PI/2; beach.position.y=-0.12; beach.receiveShadow=true; staticGroup.add(beach);
+
+  // the island itself
+  const g = new THREE.Mesh(new THREE.CircleGeometry(WORLD, 80),
+    new THREE.MeshStandardMaterial({color:0x4b7a3a, roughness:1}));
+  g.rotation.x=-Math.PI/2; g.receiveShadow=true; staticGroup.add(g); bulletMeshes.push(g);
+
+  // subtle patchwork tiles for depth (kept inside the island disc)
   const tile = new THREE.MeshStandardMaterial({color:0x53853f, roughness:1});
-  for(let i=0;i<60;i++){
-    const s = rand(20,60);
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(s,s), tile);
-    m.rotation.x=-Math.PI/2; m.position.set(rand(-WORLD,WORLD),0.02,rand(-WORLD,WORLD));
+  for(let i=0;i<120;i++){
+    const s=rand(24,72), a=rand(0,6.28), rr=Math.sqrt(rand(0,1))*(WORLD-40);
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(s,s), tile);
+    m.rotation.x=-Math.PI/2; m.position.set(Math.cos(a)*rr,0.02,Math.sin(a)*rr);
     m.receiveShadow=true; staticGroup.add(m);
-  }
-}
-
-// Border wall (storm boundary visual + collision)
-{
-  const mat = new THREE.MeshStandardMaterial({color:0x2a2f45, roughness:.9});
-  const t=4, h=14;
-  const spans=[[0,WORLD, WORLD, t],[0,-WORLD, WORLD, t],[WORLD,0,t,WORLD],[-WORLD,0,t,WORLD]];
-  for(const [x,z,hx,hz] of spans){
-    const m=new THREE.Mesh(new THREE.BoxGeometry(hx*2,h,hz*2),mat);
-    m.position.set(x,h/2,z); m.castShadow=m.receiveShadow=true;
-    staticGroup.add(m); bulletMeshes.push(m); addBoxCollider(x,z,hx,hz);
   }
 }
 
@@ -431,12 +426,14 @@ function makeIronOre(x,z,s){
 // Procedural placement: a forest-density field (fbm noise) makes trees cluster
 // into woods and clearings; rocks & iron ore gather in the low-density (rockier) patches.
 let treeCount=0, rockCount=0, ironCount=0;
-const STEP=13, TREE_CAP=460;
+const STEP=18, TREE_CAP=650;                    // bigger island: more trees than before, but capped for performance
 for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
   for(let gz=-WORLD+18; gz<WORLD-18; gz+=STEP){
-    const n=fbm(gx*0.010, gz*0.010);           // 0..1 forest density
+    const n=fbm(gx*0.006, gz*0.006);           // 0..1 forest density (larger-scale woods)
     const jx=gx+wr(-STEP*0.5,STEP*0.5), jz=gz+wr(-STEP*0.5,STEP*0.5);
-    if(Math.hypot(jx,jz)<16) continue;          // keep spawn/centre clear
+    const rad=Math.hypot(jx,jz);
+    if(rad<MTN_R+40) continue;                  // keep the central mountain clear
+    if(rad>WORLD-16) continue;                  // keep trees/rocks on land, not in the sea
     if(treeCount<TREE_CAP && wrand() < (n-0.46)*1.9){  // dense woods where n is high
       makeTree(jx,jz,wrand); treeCount++;
     } else if(n<0.34 && wrand()<0.12){          // rocky patches
@@ -474,9 +471,9 @@ function makeHouse(cx, cz, w, d){
   return {cx,cz};
 }
 const houses=[];
-for(let i=0;i<9;i++){
-  const x=wr(-WORLD+50,WORLD-50), z=wr(-WORLD+50,WORLD-50);
-  if(Math.hypot(x,z)<40){i--;continue;}
+for(let i=0;i<20;i++){                            // more houses for the bigger island
+  const a=wr(0,6.28), r=wr(MTN_R+60, WORLD-70);
+  const x=Math.cos(a)*r, z=Math.sin(a)*r;
   houses.push(makeHouse(x,z, wr(6,9), wr(6,9)));
 }
 
@@ -504,12 +501,7 @@ function makeFlag(x,y,z,scale){
   flagAnims.push({blue,yellow,phase:rand(0,6.28)});
   return g;
 }
-// giant flag at the very center as a landmark
-(function bigFlag(){
-  const g=makeFlag(0,0,0,3.4);
-})();
-
-// ---- Mountains ring ----
+// ---- Mountains ----
 function makeMountain(x,z,r,h){
   const m=new THREE.Mesh(new THREE.ConeGeometry(r,h,7,1),
     new THREE.MeshStandardMaterial({color:0x6b6e77,roughness:1,flatShading:true}));
@@ -520,18 +512,41 @@ function makeMountain(x,z,r,h){
   cap.position.set(x,h-h*0.17,z); cap.castShadow=true; staticGroup.add(cap);
   addBoxCollider(x,z,r*0.5,r*0.5);
 }
+// GIANT mountain dominating the centre of the island — the big landmark
+function makeGiantMountain(cx,cz,R,H){
+  const rock =new THREE.MeshStandardMaterial({color:0x6f727b,roughness:1,flatShading:true});
+  const rock2=new THREE.MeshStandardMaterial({color:0x585b64,roughness:1,flatShading:true});
+  const snow =new THREE.MeshStandardMaterial({color:0xeef3ff,roughness:.75,flatShading:true});
+  rock.fog=rock2.fog=snow.fog=false;             // always visible, even from the far coast
+  const cone=(x,z,rad,h,y,mat)=>{ const m=new THREE.Mesh(new THREE.ConeGeometry(rad,h,10,1),mat);
+    m.position.set(x,y,z); m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m); };
+  cone(cx,cz,R,H,H/2,rock);                       // main massif (base on the ground)
+  cone(cx,cz,R*0.62,H*1.14,H*1.14/2,rock2);       // taller inner peak for a rugged silhouette
+  cone(cx,cz,R*0.30,H*0.44,H*0.88,snow);          // snow cap near the summit
+  for(let i=0;i<8;i++){                           // rugged foothills around the base
+    const a=i/8*6.28+wr(-0.25,0.25), fr=R*wr(0.92,1.08);
+    const fx=cx+Math.cos(a)*fr, fz=cz+Math.sin(a)*fr, fh=H*wr(0.16,0.32), frad=R*wr(0.24,0.38);
+    cone(fx,fz,frad,fh,fh/2,rock); addBoxCollider(fx,fz,frad*0.55,frad*0.55);
+  }
+  addBoxCollider(cx,cz,R*0.6,R*0.6);              // impassable core
+}
+makeGiantMountain(0,0, MTN_R, WORLD*0.32);        // ~R190, ~H320 — towers over the island
+// smaller peaks ringing the coastline (placed on the island, not in the sea)
 {
-  const ring=[[-1,-1],[0,-1],[1,-1],[-1,1],[0,1],[1,1],[-1,0],[1,0]];
-  for(const [sx,sz] of ring){
-    const x=sx*(WORLD-40)+wr(-25,25), z=sz*(WORLD-40)+wr(-25,25);
-    makeMountain(x,z, wr(30,55), wr(45,95));
+  const N=10, rr=WORLD-70;
+  for(let i=0;i<N;i++){ const a=i/N*6.28+wr(-0.18,0.18);
+    makeMountain(Math.cos(a)*rr, Math.sin(a)*rr, wr(34,64), wr(55,110));
   }
 }
 
 // ---- Named locations (shop, TCK) — procedurally placed from the seed ----
-function randSpot(minR){ let x,z,tries=0; do{ x=wr(-WORLD+60,WORLD-60); z=wr(-WORLD+60,WORLD-60); tries++; } while(Math.hypot(x,z)<minR && tries<50); return {x,z}; }
-const _shop=randSpot(45), _tck=randSpot(60);
-const LOC={ shop:_shop, tck:_tck, busik:{x:_tck.x+12, z:_tck.z+14}, drop:{x:0,z:0} };
+// keep everything out of the central mountain and off the coast/water (radial band)
+function randSpot(minR){ let x,z,tries=0; const lo=Math.max(minR,MTN_R+80);
+  do{ const a=wr(0,6.28), r=wr(lo,WORLD-90); x=Math.cos(a)*r; z=Math.sin(a)*r; tries++; } while(tries<50 && Math.hypot(x,z)<lo); return {x,z}; }
+const _shop=randSpot(MTN_R+80), _tck=randSpot(MTN_R+120);
+const _dropA=wr(0,6.28), _dropR=WORLD*0.55;
+const LOC={ shop:_shop, tck:_tck, busik:{x:_tck.x+12, z:_tck.z+14},
+  drop:{x:Math.cos(_dropA)*_dropR, z:Math.sin(_dropA)*_dropR} };   // land the chopper off-centre, near the mountain
 
 // text sign board (canvas texture)
 function makeSign(text, bg, fg){
@@ -580,11 +595,10 @@ for(let i=0;i<3;i++) extraChestSpots.push([LOC.tck.x+rand(-10,10), LOC.tck.z+ran
     const post=new THREE.Mesh(new THREE.BoxGeometry(0.3,2.4,0.3),fm); post.position.set(px,1.2,pz); staticGroup.add(post); }
 }
 
-// scatter extra flags across the whole island
-for(let i=0;i<26;i++){
-  const x=rand(-WORLD+30,WORLD-30), z=rand(-WORLD+30,WORLD-30);
-  if(Math.hypot(x,z)<10) continue;
-  makeFlag(x,0,z, rand(0.9,1.5));
+// scatter extra flags across the whole island (on land, around the mountain)
+for(let i=0;i<40;i++){
+  const a=rand(0,6.28), r=rand(MTN_R+30, WORLD-30);
+  makeFlag(Math.cos(a)*r,0,Math.sin(a)*r, rand(0.9,1.5));
 }
 
 // PERF: the static world never moves — freeze its matrices so Three stops
@@ -1427,9 +1441,14 @@ function spawnWave(night){
   const hpBase = 55 + night*32;                          // much tankier each night
   const dmgBase = 11 + night*3.5;                        // hit harder
   const spd = 2.6 + Math.min(4.0, night*0.35);           // faster each night
+  // On the big island, spawn the horde in a ring AROUND the player so night stays
+  // intense instead of zombies trekking in from a far coast.
+  const cx=(player&&player.pos)?player.pos.x:0, cz=(player&&player.pos)?player.pos.z:0;
   for(let i=0;i<count;i++){
-    const ang=rand(0,Math.PI*2), r=WORLD-8;
-    const x=clamp(Math.cos(ang)*r,-WORLD+6,WORLD-6), z=clamp(Math.sin(ang)*r,-WORLD+6,WORLD-6);
+    const ang=rand(0,Math.PI*2), r=rand(70,160);
+    let x=cx+Math.cos(ang)*r, z=cz+Math.sin(ang)*r;
+    const rr=Math.hypot(x,z); if(rr>WORLD-10){ x=x/rr*(WORLD-10); z=z/rr*(WORLD-10); }   // stay on land
+    if(Math.hypot(x,z)<MTN_R+20){ const s=(MTN_R+20)/Math.max(1,Math.hypot(x,z)); x*=s; z*=s; } // off the mountain
     const mesh=makeBotMesh(tints[i%tints.length]);
     mesh.position.set(x,0,z); dynGroup.add(mesh);
     const z0={
@@ -1454,7 +1473,8 @@ function spawnChests(){
   const spots=[];
   for(const h of houses) spots.push([h.cx,h.cz]);
   for(const s of extraChestSpots) spots.push(s);   // city chests
-  for(let i=0;i<24;i++) spots.push([rand(-WORLD+20,WORLD-20),rand(-WORLD+20,WORLD-20)]);
+  for(let i=0;i<60;i++){ const a=rand(0,6.28), r=rand(MTN_R+30, WORLD-25);   // more chests across the bigger island
+    spots.push([Math.cos(a)*r, Math.sin(a)*r]); }
   for(const [x,z] of spots){
     const g=new THREE.Group();
     const b=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.9,1),mat); b.position.y=0.45; b.castShadow=true; g.add(b);
@@ -1935,7 +1955,7 @@ function makeVan(x,z){
 }
 function spawnCars(){
   const colors=[0xd23b3b,0x2f6fd2,0x2fbf5f,0xd2a02f,0x8a2fd2,0x333a48];
-  const spots=[[-60,80],[120,-90],[-140,-40],[40,150],[70,20],[-30,-120],[160,60]];
+  const spots=[]; for(let i=0;i<9;i++){ const a=rand(0,6.28), r=rand(MTN_R+50, WORLD-80); spots.push([Math.cos(a)*r, Math.sin(a)*r]); }
   for(let i=0;i<spots.length;i++){
     const [x,z]=spots[i];
     const c=makeCar(x,z,colors[i%colors.length]);
@@ -2323,8 +2343,9 @@ function updateSkydive(dt){
     const fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
     wx=fx*(-mz)+rx*mx; wz=fz*(-mz)+rz*mx; }
   const glide=player.parachute?22:32;
-  player.pos.x=clamp(player.pos.x+wx*glide*dt,-WORLD+2,WORLD-2);
-  player.pos.z=clamp(player.pos.z+wz*glide*dt,-WORLD+2,WORLD-2);
+  let gx=player.pos.x+wx*glide*dt, gz=player.pos.z+wz*glide*dt;
+  { const rr=Math.hypot(gx,gz), lim=WORLD-3; if(rr>lim){ gx=gx/rr*lim; gz=gz/rr*lim; } }
+  player.pos.x=gx; player.pos.z=gz;
   // descent
   player.vel.y-=GRAV*0.5*dt;
   if(!player.parachute && player.pos.y<58) deployParachute();
@@ -2402,7 +2423,7 @@ function update(dt){
   let nx=player.pos.x+wx*speed*dt;
   let nz=player.pos.z+wz*speed*dt;
   [nx,nz]=resolveHoriz(nx,nz);
-  nx=clamp(nx,-WORLD+2,WORLD-2); nz=clamp(nz,-WORLD+2,WORLD-2);
+  { const rr=Math.hypot(nx,nz), lim=WORLD-3; if(rr>lim){ nx=nx/rr*lim; nz=nz/rr*lim; } }  // stay on the round island
   player.pos.x=nx; player.pos.z=nz;
 
   // ---- Ladder climbing (vertical) ----
