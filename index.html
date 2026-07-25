@@ -522,33 +522,9 @@ function makeMountain(x,z,r,h){
   cap.position.set(x,h-h*0.17,z); cap.castShadow=true; staticGroup.add(cap);
   addBoxCollider(x,z,r*0.5,r*0.5);
 }
-// GIANT mountain dominating the centre of the island — a rugged, snow-covered
-// rocky peak (grey rock low, heavy snow up top) modelled on a real photo.
+// GIANT mountain dominating the centre of the island — a snow-covered rocky peak
+// whose collision matches its shape (see makeGiantMountain / mountainHeightAt).
 const _mtnRock=new THREE.Color(0x565963), _mtnRockHi=new THREE.Color(0x7e828c), _mtnSnow=new THREE.Color(0xf3f7ff);
-function ruggedPeak(x,z,rad,h,snowline){
-  const geo=new THREE.ConeGeometry(rad,h,12,8);      // enough segments to look craggy
-  const p=geo.attributes.position, col=[];
-  for(let i=0;i<p.count;i++){
-    let vx=p.getX(i), vy=p.getY(i), vz=p.getZ(i);
-    const t=(vy+h/2)/h;                              // 0 base .. 1 apex
-    const edge=1-Math.abs(t-0.5)*2;                  // most jitter mid-height, sharp apex/base
-    const jit=1+(wrand()-0.5)*0.5*(1-t*0.7);         // craggy horizontal displacement
-    vx*=jit; vz*=jit; vy+=(wrand()-0.5)*h*0.05*edge; // vertical ruggedness
-    p.setXYZ(i,vx,vy,vz);
-    const line=snowline+(wrand()-0.5)*0.18;          // noisy snow line
-    let c;
-    if(t>line) c=_mtnSnow.clone().lerp(_mtnRockHi, Math.max(0,(1-t))*0.12);   // snowy top
-    else { c=_mtnRock.clone().lerp(_mtnRockHi, wrand()*0.6);                  // rocky base
-      if(wrand()<0.10) c=_mtnSnow.clone().lerp(_mtnRockHi,0.4); }             // stray snow patches
-    col.push(c.r,c.g,c.b);
-  }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
-  geo.computeVertexNormals();
-  const mat=new THREE.MeshStandardMaterial({vertexColors:true, roughness:1, flatShading:true}); mat.fog=false;
-  const m=new THREE.Mesh(geo,mat); m.position.set(x,h/2,z);
-  m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
-  return m;
-}
 // Proper lattice comms tower (v2) + station building on the summit plateau.
 function makeInternetTower(cx,topY,cz){
   const g=new THREE.Group(); g.position.set(cx,topY,cz);
@@ -563,10 +539,8 @@ function makeInternetTower(cx,topY,cz){
     const m=new THREE.Mesh(new THREE.CylinderGeometry(th,th,len,5),mat);
     m.position.copy(A).add(B).multiplyScalar(0.5);
     m.quaternion.setFromUnitVectors(up, d.normalize()); m.castShadow=true; g.add(m); return m; }
-  // snowy foundation slab on the plateau
-  const slab=new THREE.Mesh(new THREE.CylinderGeometry(20,22,5,14),
-    nofog(new THREE.MeshStandardMaterial({color:0xdfe6ee,roughness:1,flatShading:true})));
-  slab.position.y=-2.5; slab.receiveShadow=true; g.add(slab); slab.updateMatrixWorld(); bulletMeshes.push(slab);
+  // (the mountain's own flat snowy plateau is the foundation — no separate slab,
+  //  so walking from the slope onto the tower is seamless)
   // --- station building ---
   const bld=new THREE.Mesh(new THREE.BoxGeometry(12,6,8),nofog(new THREE.MeshStandardMaterial({color:0xd3d9e1,roughness:.9})));
   bld.position.set(-9,3,3); bld.castShadow=true; g.add(bld); bld.updateMatrixWorld(); bulletMeshes.push(bld);
@@ -605,14 +579,32 @@ function makeInternetTower(cx,topY,cz){
   addBoxCollider(cx-9, cz+3, 6, 4.2);               // the building itself is solid
 }
 function makeGiantMountain(cx,cz,R,H){
-  // CLIMBABLE: the surface is a height field (see mountainHeightAt) — no blocking
-  // colliders, so you can walk up the slope to the summit tower.
-  ruggedPeak(cx,cz,R,H,0.34);                        // main snowy massif
-  ruggedPeak(cx+R*0.18,cz-R*0.12,R*0.5,H*0.72,0.42); // secondary ridge (kept under the main cone)
-  ruggedPeak(cx-R*0.20,cz+R*0.16,R*0.42,H*0.56,0.5); // lower rocky shoulder
-  makeInternetTower(cx, H, cz);                      // comms station on the summit
+  // The visual mesh is a truncated cone whose surface EXACTLY matches
+  // mountainHeightAt (bottom radius R at y=0, flat top radius MTN_FLAT at y=H),
+  // so the collision (the height field) lines up with what you see, and the flat
+  // snowy top blends seamlessly into the summit tower. Ruggedness comes from
+  // flat-shaded facets, snow/rock vertex colours and only a tiny vertical jitter
+  // (no horizontal jitter, which would break the height-field match).
+  const geo=new THREE.CylinderGeometry(MTN_FLAT, R, H, 16, 11);
+  const p=geo.attributes.position, col=[], snowline=0.34;
+  for(let i=0;i<p.count;i++){
+    let vy=p.getY(i); const t=(vy+H/2)/H;            // 0 base .. 1 flat top
+    if(t>0.02 && t<0.97){ vy+=(wrand()-0.5)*H*0.012*(1-Math.abs(t-0.5)*2); p.setY(i,vy); }
+    const line=snowline+(wrand()-0.5)*0.16;          // noisy snow line
+    let c;
+    if(t>line) c=_mtnSnow.clone().lerp(_mtnRockHi, Math.max(0,(1-t))*0.1);       // snowy top
+    else { c=_mtnRock.clone().lerp(_mtnRockHi, wrand()*0.6);                     // rocky base
+      if(wrand()<0.08) c=_mtnSnow.clone().lerp(_mtnRockHi,0.4); }                // stray snow patches
+    col.push(c.r,c.g,c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+  geo.computeVertexNormals();
+  const mat=new THREE.MeshStandardMaterial({vertexColors:true, roughness:1, flatShading:true}); mat.fog=false;
+  const m=new THREE.Mesh(geo,mat); m.position.set(cx,H/2,cz);
+  m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
+  makeInternetTower(cx, H, cz);                      // comms station on the flat summit
 }
-makeGiantMountain(0,0, MTN_R, MTN_H);            // towers over the island — and you can climb it
+makeGiantMountain(0,0, MTN_R, MTN_H);            // climbable, collision matches the visible slope
 // smaller peaks ringing the coastline (placed on the island, not in the sea)
 {
   const N=10, rr=WORLD-70;
