@@ -38,7 +38,9 @@ You start with **only a pickaxe and axe — no guns**, and weapons no longer dro
 
 ## ✈️ 3D models (.glb)
 
-The aircraft (the crashed chopper at the intro) and the **zombies** are loaded from real **`.glb` models** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`) — `models/plane.glb` and `models/zombie.glb`. To swap either, drop a different `.glb` in with the same name. If a model can't be loaded the game silently falls back to the built-in code-drawn shapes. The zombie model is baked to a static low-poly mesh at load (rig removed) so the horde of ~140 stays cheap.
+Lots of the game is loaded from real **`.glb` models** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`): the aircraft (`plane.glb`), the walking **zombies** (`zombie.glb`, rigged — its walk animation plays), and the **trees, rocks and iron ore** (`tree.glb`, `rock.glb`, `iron.glb`). To swap any of them, drop a different `.glb` in with the same name. If a model can't be loaded the game silently falls back to the built-in code-drawn shapes.
+
+Because the tree/rock/iron models load asynchronously, the vegetation is placed once they're ready. The rock model is high-poly, so the number of rocks is capped for performance.
 
 > **Important:** browsers only load `.glb` files over **http://**, not `file://`. Open the game through a local server (see below) or the model won't appear (you'll get the fallback shape).
 

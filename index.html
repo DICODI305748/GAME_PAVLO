@@ -394,8 +394,39 @@ const TRUNK_MAT=new THREE.MeshStandardMaterial({color:0x6b4423,roughness:1});
 const PINE_MAT =new THREE.MeshStandardMaterial({color:0x2f7d3a,roughness:1});
 const PINE_MAT2=new THREE.MeshStandardMaterial({color:0x3f8f45,roughness:1});
 const OAK_MAT  =new THREE.MeshStandardMaterial({color:0x4a9e4a,roughness:1});
+
+// ---- 3D prop models (.glb) for trees, rocks and iron ore ----
+let TREE_MODEL=null, ROCK_MODEL=null, IRON_MODEL=null;
+function loadProp(url, targetH, onDone){
+  if(typeof THREE.GLTFLoader==="undefined"){ onDone&&onDone(null); return; }
+  try{ new THREE.GLTFLoader().load(url, (gltf)=>{
+    const src=gltf.scene;
+    src.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true;
+      const mats=Array.isArray(o.material)?o.material:[o.material];
+      for(const mt of mats){ if(mt){ if("metalness" in mt) mt.metalness=Math.min(mt.metalness||0,0.1); mt.side=THREE.DoubleSide; mt.needsUpdate=true; } } } });
+    const inner=new THREE.Group(); inner.add(src); inner.updateWorldMatrix(true,true);
+    let box=new THREE.Box3().setFromObject(inner), size=new THREE.Vector3(); box.getSize(size);
+    const s=targetH/(size.y||1); inner.scale.setScalar(s);
+    const c=new THREE.Vector3(); box.getCenter(c);
+    inner.position.set(-c.x*s, -box.min.y*s, -c.z*s);   // centre x/z, feet at y=0
+    const wrap=new THREE.Group(); wrap.add(inner);
+    onDone&&onDone(wrap);
+  }, undefined, (e)=>{ console.warn(url+" failed", e); onDone&&onDone(null); }); }
+  catch(e){ onDone&&onDone(null); }
+}
+// clone a prop model at (x,z), scaled, wired up as a harvestable (collider + raycast target)
+function placeProp(MODEL,x,z,sc,harvest,hp,colHalf){
+  const g=MODEL.clone(true); g.position.set(x,0,z); g.scale.setScalar(sc); g.rotation.y=wr(0,6.28);
+  staticGroup.add(g); g.updateMatrixWorld(true);
+  let mesh=null; g.traverse(o=>{ if(o.isMesh && !mesh) mesh=o; });
+  const col=addBoxCollider(x,z,colHalf,colHalf);
+  if(mesh){ bulletMeshes.push(mesh); mesh.userData.harvest=harvest; mesh.userData.hp=hp; mesh.userData.rootGroup=g; mesh.userData.col=col; }
+  return g;
+}
+
 // Trees — two kinds for variety
 function makeTree(x,z,r){
+  if(TREE_MODEL){ const sc=0.8+r()*0.7; placeProp(TREE_MODEL,x,z,sc,"wood",3,0.7*sc); return; }
   const g=new THREE.Group();
   const pine = r()<0.7;
   const scale = 0.8+r()*0.7;
@@ -424,6 +455,7 @@ const ROCK_MAT=new THREE.MeshStandardMaterial({color:0x8a8f9c,roughness:1,flatSh
 const IRON_MAT=new THREE.MeshStandardMaterial({color:0x8a6a52,roughness:.7,metalness:.5,flatShading:true});
 const IRON_VEIN=new THREE.MeshStandardMaterial({color:0xd8a066,emissive:0x3a2410,emissiveIntensity:.4,metalness:.8,roughness:.4});
 function makeRock(x,z,s){
+  if(ROCK_MODEL){ const sc=Math.max(0.4,s/4); placeProp(ROCK_MODEL,x,z,sc,"stone",4,1.2*sc); return; }
   const r=new THREE.Mesh(new THREE.DodecahedronGeometry(s,0), ROCK_MAT);
   r.position.set(x, s*0.5, z); r.castShadow=r.receiveShadow=true;
   r.rotation.set(wr(0,3),wr(0,3),wr(0,3));
@@ -433,6 +465,7 @@ function makeRock(x,z,s){
 }
 // Iron ore — mine with the pickaxe for metal 🔩
 function makeIronOre(x,z,s){
+  if(IRON_MODEL){ const sc=Math.max(0.5,s/3.5); placeProp(IRON_MODEL,x,z,sc,"iron",6,1.0*sc); return; }
   const g=new THREE.Group();
   const r=new THREE.Mesh(new THREE.DodecahedronGeometry(s,0), IRON_MAT);
   r.rotation.set(wr(0,3),wr(0,3),wr(0,3)); r.castShadow=r.receiveShadow=true; g.add(r);
@@ -447,23 +480,41 @@ function makeIronOre(x,z,s){
 let treeCount=0, rockCount=0, ironCount=0;
 // Low per-cell chance + high cap => the cap is (almost) never hit mid-loop, so trees
 // spread EVENLY across the whole island instead of filling one side and stopping.
-const STEP=17, TREE_CAP=2000;   // safely above the ~1600 expected, so coverage is never truncated
-for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
-  for(let gz=-WORLD+18; gz<WORLD-18; gz+=STEP){
-    const n=fbm(gx*0.006, gz*0.006);           // 0..1 forest density (larger-scale woods)
-    const jx=gx+wr(-STEP*0.5,STEP*0.5), jz=gz+wr(-STEP*0.5,STEP*0.5);
-    const rad=Math.hypot(jx,jz);
-    if(rad<MTN_R+40) continue;                  // keep the central mountain clear
-    if(rad>WORLD-16) continue;                  // keep trees/rocks on land, not in the sea
-    // trees grow ALL OVER the island (thin everywhere, denser in the woods)
-    if(treeCount<TREE_CAP && wrand() < 0.10+n*0.13){
-      makeTree(jx,jz,wrand); treeCount++;
-    } else if(n<0.34 && wrand()<0.14){          // rocky patches in the clearings
-      if(wrand()<0.28){ makeIronOre(jx,jz, wr(2.5,5)); ironCount++; }  // some are iron ore
-      else { makeRock(jx,jz, wr(2,6)); rockCount++; }
+// The rock model is very high-poly, so cap how many rocks/iron are placed.
+const STEP=17, TREE_CAP=2000, ROCK_CAP=38, IRON_CAP=120;   // rock model is ~53k tris -> keep the count low
+function placeVegetation(){
+  for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
+    for(let gz=-WORLD+18; gz<WORLD-18; gz+=STEP){
+      const n=fbm(gx*0.006, gz*0.006);           // 0..1 forest density (larger-scale woods)
+      const jx=gx+wr(-STEP*0.5,STEP*0.5), jz=gz+wr(-STEP*0.5,STEP*0.5);
+      const rad=Math.hypot(jx,jz);
+      if(rad<MTN_R+40) continue;                  // keep the central mountain clear
+      if(rad>WORLD-16) continue;                  // keep trees/rocks on land, not in the sea
+      // trees grow ALL OVER the island (thin everywhere, denser in the woods)
+      if(treeCount<TREE_CAP && wrand() < 0.10+n*0.13){
+        makeTree(jx,jz,wrand); treeCount++;
+      } else if(n<0.34 && wrand()<0.14){          // rocky patches in the clearings
+        // always consume the same wrand calls (so the cap doesn't shift the rest of the map)
+        if(wrand()<0.28){ const s=wr(2.5,5); if(ironCount<IRON_CAP){ makeIronOre(jx,jz,s); ironCount++; } }
+        else { const s=wr(2,6); if(rockCount<ROCK_CAP){ makeRock(jx,jz,s); rockCount++; } }
+      }
     }
   }
+  // freeze the freshly-placed static props so they don't recompute matrices each frame
+  staticGroup.updateMatrixWorld(true);
+  staticGroup.traverse(o=>{ if(!o.userData.anim) o.matrixAutoUpdate=false; });
 }
+// Trees/rocks/iron use .glb models that load asynchronously — place the vegetation
+// once the models are ready (or right away, with code shapes, if there's no loader).
+(function(){
+  let pending=3, done=false;
+  const go=()=>{ if(!done){ done=true; placeVegetation(); } };
+  const ready=()=>{ if(--pending<=0) go(); };
+  loadProp("models/tree.glb", 9,   m=>{ TREE_MODEL=m; ready(); });
+  loadProp("models/rock.glb", 4.5, m=>{ ROCK_MODEL=m; ready(); });
+  loadProp("models/iron.glb", 4,   m=>{ IRON_MODEL=m; ready(); });
+  setTimeout(go, 6000);   // safety net so vegetation always appears even if a model stalls
+})();
 
 // Pre-built houses (loot landmarks) — real walls with a doorway + roof
 function makeHouse(cx, cz, w, d){
