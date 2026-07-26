@@ -263,6 +263,7 @@ const MTN_FLAT = 20;          // flat summit radius you can stand on (matches th
 // (see buildMountainField), so the collision follows the visible shape EXACTLY.
 // Until then (or with the procedural fallback) it's a truncated cone you can climb.
 let _mtnField=null;   // {minX,minZ,cell,N,data:Float32Array}
+let _mtnReady=false;  // true once the mountain (model or fallback) is placed
 function mountainHeightAt(x,z){
   const f=_mtnField;
   if(f){
@@ -788,12 +789,33 @@ function placeTowerModel(model, cx, topY, cz, targetH){
   wrap.traverse(o=>{ if(o.isMesh){ o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
   addBoxCollider(cx, cz, Math.max(3,sz.x*s*0.28), Math.max(3,sz.z*s*0.28));  // solid tower base
 }
+// A snowy summit cap that blends the model's pointed peak into a rounded top so the
+// tower plants into it flush (no visible seam). Slopes down steeply into the mountain
+// snowline; returns the y of its flat top where the tower stands.
+function makeSummitCap(){
+  const topR=14, botR=23, topY=MTN_H+1, botY=250, h=topY-botY;
+  const geo=new THREE.CylinderGeometry(topR, botR, h, 16, 5);
+  // strong vertex jitter + snow/rock tint so it reads as a rugged snowy knob, not a smooth drum
+  const p=geo.attributes.position, col=[], snow=new THREE.Color(0xeef3fb), rock=new THREE.Color(0x8f95a1);
+  for(let i=0;i<p.count;i++){ const vy=p.getY(i), t=(vy+h/2)/h;
+    if(t>0.03&&t<0.97){ p.setX(i,p.getX(i)+(wrand()-0.5)*4.2); p.setZ(i,p.getZ(i)+(wrand()-0.5)*4.2); p.setY(i,vy+(wrand()-0.5)*3); }
+    const rk=Math.max(0, (0.55-t))*0.9 + (wrand()<0.12?0.5:0);   // rocky lower + stray rock flecks
+    col.push(...snow.clone().lerp(rock, Math.min(1,rk)).toArray()); }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col,3)); geo.computeVertexNormals();
+  const mat=new THREE.MeshStandardMaterial({vertexColors:true, roughness:.92, flatShading:true}); mat.fog=false;
+  const m=new THREE.Mesh(geo,mat); m.position.set(0,(topY+botY)/2,0);
+  m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(true); bulletMeshes.push(m);
+  return topY;
+}
 // Orchestrate: prefer the .glb models, fall back to the procedural mountain/tower.
 (function(){
   let pend=2, mtnM=null, twrM=null, done=false;
   const build=()=>{ if(done) return; done=true;
-    if(mtnM) placeMountainModel(mtnM,0,0); else makeGiantMountain(0,0,MTN_R,MTN_H);
-    if(twrM) placeTowerModel(twrM,0,MTN_H,0,60); else makeInternetTower(0,MTN_H,0);
+    if(mtnM){ placeMountainModel(mtnM,0,0); const capTop=makeSummitCap();
+      if(twrM) placeTowerModel(twrM,0,capTop-4,0,50); else makeInternetTower(0,capTop-4,0); }
+    else { makeGiantMountain(0,0,MTN_R,MTN_H);
+      if(twrM) placeTowerModel(twrM,0,MTN_H,0,60); else makeInternetTower(0,MTN_H,0); }
+    _mtnReady=true;                                   // the intro fly-in waits for this
   };
   const step=()=>{ if(--pend<=0) build(); };
   loadRawModel("models/mountain.glb",    m=>{ mtnM=m; step(); });
@@ -3043,7 +3065,7 @@ function startCutscene(){
   const flyStart=new THREE.Vector3(dir.x*(MTN_R+560),215,dir.y*(MTN_R+560));
   const ix=dir.x*MTN_R*0.62, iz=dir.y*MTN_R*0.62;
   const impact=new THREE.Vector3(ix, mountainHeightAt(ix,iz)+14, iz);
-  cutscene={ t:0, phase:"fly", heli:heli2, dir, flyStart, impact, woke:false };
+  cutscene={ t:0, phase:"fly", heli:heli2, dir, flyStart, impact, ix, iz, woke:false, refined:false };
   // sit inside the cockpit: show the cabin frame, hide the held tool
   cockpitMesh=makeCockpit(); camera.add(cockpitMesh);
   if(gunMesh) gunMesh.visible=false;
@@ -3053,7 +3075,18 @@ function startCutscene(){
 const FLY_T=4.4;
 function updateCutscene(dt){
   const c=cutscene; if(!c) return;
-  c.t+=dt; net.tick(dt); animCrashFire(dt);
+  net.tick(dt); animCrashFire(dt);
+  // Don't crash into a mountain that isn't there yet: idle in the cockpit until the
+  // (async) mountain model is placed, so the intro always shows the mountain rushing up.
+  if(c.phase==="fly" && !_mtnReady){
+    if(c.heli){ c.heli.userData.rotor.rotation.y+=dt*34; c.heli.userData.trotor.rotation.x+=dt*44;
+      c.heli.position.copy(c.flyStart); c.heli.lookAt(c.impact); c.heli.rotateY(Math.PI); }
+    camera.position.copy(c.flyStart.clone().add(new THREE.Vector3(0,0.5,0)));
+    camera.lookAt(c.impact.x,c.impact.y,c.impact.z);
+    return;
+  }
+  if(c.phase==="fly" && !c.refined){ c.refined=true; c.impact.y=mountainHeightAt(c.ix,c.iz)+14; }
+  c.t+=dt;
   if(c.phase==="fly"){
     const f=Math.min(1,c.t/FLY_T), ef=f*f;             // accelerate into the mountain
     const pos=c.flyStart.clone().lerp(c.impact, ef);
