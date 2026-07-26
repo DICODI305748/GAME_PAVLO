@@ -441,7 +441,9 @@ function makeIronOre(x,z,s){
 // Procedural placement: a forest-density field (fbm noise) makes trees cluster
 // into woods and clearings; rocks & iron ore gather in the low-density (rockier) patches.
 let treeCount=0, rockCount=0, ironCount=0;
-const STEP=17, TREE_CAP=1150;                   // trees everywhere across the island (capped for performance)
+// Low per-cell chance + high cap => the cap is (almost) never hit mid-loop, so trees
+// spread EVENLY across the whole island instead of filling one side and stopping.
+const STEP=17, TREE_CAP=2000;   // safely above the ~1600 expected, so coverage is never truncated
 for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
   for(let gz=-WORLD+18; gz<WORLD-18; gz+=STEP){
     const n=fbm(gx*0.006, gz*0.006);           // 0..1 forest density (larger-scale woods)
@@ -449,8 +451,8 @@ for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
     const rad=Math.hypot(jx,jz);
     if(rad<MTN_R+40) continue;                  // keep the central mountain clear
     if(rad>WORLD-16) continue;                  // keep trees/rocks on land, not in the sea
-    // trees grow ALL OVER the island now (base chance everywhere, denser in the woods)
-    if(treeCount<TREE_CAP && wrand() < 0.22+n*0.55){
+    // trees grow ALL OVER the island (thin everywhere, denser in the woods)
+    if(treeCount<TREE_CAP && wrand() < 0.10+n*0.13){
       makeTree(jx,jz,wrand); treeCount++;
     } else if(n<0.34 && wrand()<0.14){          // rocky patches in the clearings
       if(wrand()<0.28){ makeIronOre(jx,jz, wr(2.5,5)); ironCount++; }  // some are iron ore
@@ -2713,9 +2715,29 @@ function loop(ts){
 //  you wake up at the wreck and must reach the summit tower to signal for help.
 //  (Runs client-side, so it works the same in offline and online co-op.)
 // ===================================================================
-let cutscene=null, crashLoot=null, crashFires=null, signalSent=false, _objNear=null;
+let cutscene=null, crashLoot=null, crashFires=null, signalSent=false, _objNear=null, cockpitMesh=null;
 const fadeEl=document.getElementById("fade");
 const objEl=document.getElementById("objective");
+// A helicopter cockpit interior (walls + windshield frame) attached to the camera,
+// so during the intro you're clearly sitting INSIDE the chopper looking out.
+function makeCockpit(){
+  const g=new THREE.Group();
+  const metal=new THREE.MeshStandardMaterial({color:0x3b424c,roughness:.6,metalness:.4}); metal.fog=false;
+  const wall =new THREE.MeshStandardMaterial({color:0x1a1f27,roughness:.85,side:THREE.DoubleSide}); wall.fog=false;
+  const B=(w,h,d,x,y,z,mat,rz)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat||metal); m.position.set(x,y,z); if(rz)m.rotation.z=rz; g.add(m); return m; };
+  B(2.6,0.55,0.7, 0,-0.72,-0.95, metal);          // dashboard
+  B(2.6,0.9,0.5, 0,-1.15,0.1, wall);              // lower cabin front / footwell
+  B(2.6,0.18,0.4, 0, 0.66,-1.0, metal);           // top window bar
+  B(0.16,1.5,0.4, -0.92,0,-0.98, metal, 0.17);    // left A-pillar
+  B(0.16,1.5,0.4,  0.92,0,-0.98, metal,-0.17);    // right A-pillar
+  B(0.16,1.5,3.0, -1.18,0,0.4, wall);             // left wall
+  B(0.16,1.5,3.0,  1.18,0,0.4, wall);             // right wall
+  B(2.6,0.16,3.0, 0, 0.78,0.4, wall);             // ceiling
+  B(2.6,0.16,3.0, 0,-0.82,0.4, wall);             // floor
+  const gauge=new THREE.MeshBasicMaterial({color:0x2fd0ff}); gauge.fog=false;
+  for(const gx of [-0.5,-0.15,0.2,0.55]){ const gm=new THREE.Mesh(new THREE.CircleGeometry(0.05,10),gauge); gm.position.set(gx,-0.56,-0.6); g.add(gm); }
+  return g;
+}
 function setObjective(html){ if(!objEl) return; if(html){ objEl.style.display="block"; objEl.innerHTML=html; } else objEl.style.display="none"; }
 
 function makeDeadBody(x,z,ang){
@@ -2759,12 +2781,16 @@ function startCutscene(){
   const lx=cx+Math.cos(player.yaw)*2.6, lz=cz+Math.sin(player.yaw)*2.6;
   pg.position.set(lx,0,lz); dynGroup.add(pg);
   crashLoot={mesh:pg, x:lx, z:lz, taken:false};
-  // the doomed chopper approaching the mountain
-  const heli2=makeHeli(); scene.add(heli2);
+  // the doomed chopper approaching the mountain (its exterior is hidden — we're inside it,
+  // the cockpit frame is what you see; we only use its position to fly the camera)
+  const heli2=makeHeli(); heli2.visible=false; scene.add(heli2);
   const flyStart=new THREE.Vector3(dir.x*(MTN_R+560),215,dir.y*(MTN_R+560));
   const ix=dir.x*MTN_R*0.62, iz=dir.y*MTN_R*0.62;
   const impact=new THREE.Vector3(ix, mountainHeightAt(ix,iz)+14, iz);
   cutscene={ t:0, phase:"fly", heli:heli2, dir, flyStart, impact, woke:false };
+  // sit inside the cockpit: show the cabin frame, hide the held tool
+  cockpitMesh=makeCockpit(); camera.add(cockpitMesh);
+  if(gunMesh) gunMesh.visible=false;
   if(fadeEl){ fadeEl.style.transition="none"; fadeEl.style.opacity="0"; }
   state="cutscene";
 }
@@ -2778,13 +2804,13 @@ function updateCutscene(dt){
     if(c.heli){ c.heli.userData.rotor.rotation.y+=dt*34; c.heli.userData.trotor.rotation.x+=dt*44;
       c.heli.position.copy(pos); c.heli.lookAt(c.impact); c.heli.rotateY(Math.PI);
       c.heli.rotation.z+=Math.sin(c.t*8)*0.05*f; }
-    // camera sits in the cockpit (just behind the nose glass), looking out at the mountain rushing up
-    const fwd=new THREE.Vector3().subVectors(c.impact,pos).normalize();
-    const cam=pos.clone().add(fwd.clone().multiplyScalar(4.4)).add(new THREE.Vector3(0,0.5,0));
+    // camera sits INSIDE the cabin; the cockpit frame (walls) is attached to it
+    const cam=pos.clone().add(new THREE.Vector3(0,0.5,0));
     if(f>0.5){ const s=(f-0.5)*2.6; cam.x+=rand(-1,1)*s; cam.y+=rand(-1,1)*s; cam.z+=rand(-1,1)*s; }  // shakes as it fails
     camera.position.copy(cam); camera.lookAt(c.impact.x,c.impact.y-4,c.impact.z);
     if(c.t>=FLY_T){                                     // ---- CRASH ----
       if(c.heli){ scene.remove(c.heli); c.heli=null; }
+      if(cockpitMesh){ camera.remove(cockpitMesh); cockpitMesh=null; }   // out of the cockpit
       for(let i=0;i<3;i++) burst(c.impact.x+rand(-4,4),c.impact.y+rand(-2,4),c.impact.z+rand(-4,4),0xff8a2a,10);
       if(typeof playExplosion==="function") playExplosion(0.9);
       if(fadeEl){ fadeEl.style.transition="opacity .5s"; fadeEl.style.opacity="1"; }
@@ -2804,6 +2830,8 @@ function updateCutscene(dt){
 function finishCutscene(){
   if(!cutscene) return;
   cutscene=null;
+  if(cockpitMesh){ camera.remove(cockpitMesh); cockpitMesh=null; }   // (if skipped mid-flight)
+  if(gunMesh) gunMesh.visible=true;                                  // restore the held weapon/tool
   if(fadeEl){ fadeEl.style.transition="opacity .35s"; fadeEl.style.opacity="0"; }
   state="play"; lastTime=performance.now();
   if(!signalSent) setObjective("🎯 Дійди до 📡 <b>вишки на вершині гори</b> й надішли сигнал допомоги");
