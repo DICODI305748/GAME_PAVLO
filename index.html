@@ -238,6 +238,8 @@ if (typeof THREE === "undefined") {
 <script src="peerjs.min.js"></script>
 <!-- GLTFLoader: load .glb 3D models (e.g. the aircraft). Falls back to code shapes if missing. -->
 <script src="GLTFLoader.js"></script>
+<!-- SkeletonUtils: correctly clone rigged/animated models (the walking zombie). -->
+<script src="SkeletonUtils.js"></script>
 <script>
 (() => {
 "use strict";
@@ -708,34 +710,31 @@ let HELI_MODEL=null;
 })();
 
 // ---- Zombie: load the .glb model once; makeBotMesh() clones it (else code shapes) ----
-let ZOMBIE_MODEL=null;
+let ZOMBIE_MODEL=null, ZOMBIE_CLIP=null;
+const ZOMBIE_FACE=0;                 // extra Y rotation so the model faces the player (tuned below)
 (function loadZombieModel(){
   if(typeof THREE.GLTFLoader==="undefined") return;
   try{
     new THREE.GLTFLoader().load("models/zombie.glb", (gltf)=>{
-      const src=gltf.scene; src.updateWorldMatrix(true,true);
-      // Bake every mesh into a flat, STATIC holder (baking the world matrix into the
-      // geometry). This drops the rig — plain-cloning a SkinnedMesh keeps the original
-      // skeleton and renders the clone at the origin. Zombies aren't animated, so a
-      // static mesh both fixes cloning and is much cheaper for ~140 of them.
-      const holder=new THREE.Group();
-      src.traverse(o=>{ if(o.isMesh){ const geo=o.geometry.clone(); geo.applyMatrix4(o.matrixWorld);
-        const pm=new THREE.Mesh(geo, o.material); pm.castShadow=false; pm.receiveShadow=false;
-        // kill metalness — without an env map, metallic PBR renders solid black
-        const mats=Array.isArray(pm.material)?pm.material:[pm.material];
+      const src=gltf.scene;
+      // KEEP the rig (so we can play the walk animation). Just fix materials + normalise.
+      src.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false;
+        const mats=Array.isArray(o.material)?o.material:[o.material];
         for(const mt of mats){ if(mt){ if("metalness" in mt) mt.metalness=0; if("roughness" in mt) mt.roughness=Math.max(mt.roughness||0,0.7);
-          mt.side=THREE.DoubleSide;   // baking a mirrored GLTF transform inverts normals -> DoubleSide re-lights the visible side
+          mt.side=THREE.DoubleSide;   // a mirrored GLTF transform inverts normals -> DoubleSide re-lights the visible side
           if(mt.map){ mt.emissiveMap=mt.map; if(mt.emissive) mt.emissive.setRGB(1,1,1); mt.emissiveIntensity=0.4; }  // slight self-light so zombies stay visible at night
-          mt.needsUpdate=true; } }
-        holder.add(pm); } });
-      // centre the geometry on x/z with feet at y=0, then scale/rotate about that point
-      let box=new THREE.Box3().setFromObject(holder), size=new THREE.Vector3(); box.getSize(size);
+          mt.needsUpdate=true; } } } });
+      // normalise: ~2 units tall, feet on the ground, centred on x/z, facing +Z
+      const inner=new THREE.Group(); inner.add(src);
+      inner.updateWorldMatrix(true,true);
+      let box=new THREE.Box3().setFromObject(inner), size=new THREE.Vector3(); box.getSize(size);
       const c=new THREE.Vector3(); box.getCenter(c);
-      for(const ch of holder.children) ch.geometry.translate(-c.x, -box.min.y, -c.z);
-      const inner=new THREE.Group(); inner.add(holder);
-      inner.scale.setScalar(2.0/(size.y||1));       // ~2 units tall
-      inner.rotation.y=Math.PI;                      // face the way the game expects
-      const wrap=new THREE.Group(); wrap.add(inner); ZOMBIE_MODEL=wrap;
+      const s=2.0/(size.y||1);
+      inner.scale.setScalar(s);
+      inner.position.set(-c.x*s, -box.min.y*s, -c.z*s);
+      inner.rotation.y=ZOMBIE_FACE;
+      const wrap=new THREE.Group(); wrap.add(inner);
+      ZOMBIE_MODEL=wrap; ZOMBIE_CLIP=(gltf.animations&&gltf.animations[0])||null;
     }, undefined, (err)=>{ console.warn("zombie.glb failed to load — using the built-in zombie", err); });
   }catch(e){}
 })();
@@ -1539,7 +1538,16 @@ function upgradeAimed(){
 function makeBotMesh(color){
   const g=new THREE.Group();
   if(ZOMBIE_MODEL){
-    g.add(ZOMBIE_MODEL.clone(true));            // real 3D zombie model
+    // clone the rigged model (SkeletonUtils rebinds the skeleton so each zombie
+    // animates independently) and play its walk clip
+    const clone=(THREE.SkeletonUtils&&THREE.SkeletonUtils.clone)?THREE.SkeletonUtils.clone(ZOMBIE_MODEL):ZOMBIE_MODEL.clone(true);
+    g.add(clone);
+    if(ZOMBIE_CLIP && THREE.AnimationMixer){
+      const mx=new THREE.AnimationMixer(clone);
+      const act=mx.clipAction(ZOMBIE_CLIP); act.play();
+      act.time=Math.random()*(ZOMBIE_CLIP.duration||1);   // desync so they don't march in lockstep
+      g.userData.mixer=mx;
+    }
   } else {
     const skin=color||0x5a8a3a;
     const bodyMat=new THREE.MeshStandardMaterial({color:skin,roughness:.85});
@@ -2518,6 +2526,10 @@ function updateSkydive(dt){
 }
 function animWorld(dt){
   animCrashFire(dt);            // the crashed chopper keeps burning
+  // zombie walk animation — only update mixers for nearby zombies (perf)
+  if(bots.length && player&&player.pos){ const px=player.pos.x, pz=player.pos.z;
+    for(const b of bots){ const mx=b.alive&&b.mesh.userData.mixer;
+      if(mx && Math.abs(b.x-px)<120 && Math.abs(b.z-pz)<120) mx.update(dt); } }
   // waving flags
   const t=performance.now()*0.004;
   for(const f of flagAnims){
