@@ -38,7 +38,7 @@ You start with **only a pickaxe and axe — no guns**, and weapons no longer dro
 
 ## ✈️ 3D models (.glb)
 
-The aircraft (the crashed chopper at the intro) is loaded from a real **`.glb` model** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`). To swap it, drop a different `.glb` in as `models/plane.glb`. If the model can't be loaded the game silently falls back to the built-in code-drawn helicopter.
+The aircraft (the crashed chopper at the intro) and the **zombies** are loaded from real **`.glb` models** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`) — `models/plane.glb` and `models/zombie.glb`. To swap either, drop a different `.glb` in with the same name. If a model can't be loaded the game silently falls back to the built-in code-drawn shapes. The zombie model is baked to a static low-poly mesh at load (rig removed) so the horde of ~140 stays cheap.
 
 > **Important:** browsers only load `.glb` files over **http://**, not `file://`. Open the game through a local server (see below) or the model won't appear (you'll get the fallback shape).
 
