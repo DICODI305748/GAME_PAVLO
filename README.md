@@ -36,9 +36,15 @@ Build mode (**B**) pieces, all on a Fortnite-style grid: **1** wall · **2** doo
 
 You start with **only a pickaxe and axe — no guns**, and weapons no longer drop from chests. To arm up you must build a **crafting table**: first lay a floor and upgrade it to **metal**, then place the table (slot **9**) *on that metal floor* — it costs **70 🪵 + 90 🪨 + 40 🔩**. Stand next to it and press **E** to open the bench and craft any weapon (pistol, SMG, AR, shotgun, sniper, bazooka) for wood/stone/metal.
 
+## ✈️ 3D models (.glb)
+
+The aircraft (the crashed chopper at the intro) is loaded from a real **`.glb` model** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`). To swap it, drop a different `.glb` in as `models/plane.glb`. If the model can't be loaded the game silently falls back to the built-in code-drawn helicopter.
+
+> **Important:** browsers only load `.glb` files over **http://**, not `file://`. Open the game through a local server (see below) or the model won't appear (you'll get the fallback shape).
+
 ## ▶️ Play
 
-Open `index.html` in any modern browser (needs internet the first time — Three.js loads from a CDN).
+Open `index.html` through a local web server (needed for the 3D model and to avoid `file://` limits):
 
 Local server:
 

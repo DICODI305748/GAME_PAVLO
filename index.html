@@ -236,6 +236,8 @@ if (typeof THREE === "undefined") {
 </script>
 <!-- PeerJS: peer-to-peer co-op (no server to run). Offline single-player works without it. -->
 <script src="peerjs.min.js"></script>
+<!-- GLTFLoader: load .glb 3D models (e.g. the aircraft). Falls back to code shapes if missing. -->
+<script src="GLTFLoader.js"></script>
 <script>
 (() => {
 "use strict";
@@ -688,8 +690,30 @@ for(let i=0;i<40;i++){
 staticGroup.updateMatrixWorld(true);
 staticGroup.traverse(o=>{ if(!o.userData.anim) o.matrixAutoUpdate=false; });
 
-// ---- Helicopter (deployment) ----
+// ---- Aircraft: load the .glb model once; fall back to code shapes if it's missing ----
+let HELI_MODEL=null;
+(function loadHeliModel(){
+  if(typeof THREE.GLTFLoader==="undefined") return;
+  try{
+    new THREE.GLTFLoader().load("models/plane.glb", (gltf)=>{
+      const m=gltf.scene;
+      // normalise: scale the model to ~16 units and centre it on the origin
+      let box=new THREE.Box3().setFromObject(m), size=new THREE.Vector3(); box.getSize(size);
+      const maxd=Math.max(size.x,size.y,size.z)||1; m.scale.setScalar(16/maxd);
+      box=new THREE.Box3().setFromObject(m); const c=new THREE.Vector3(); box.getCenter(c); m.position.sub(c);
+      m.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true; } });
+      const wrap=new THREE.Group(); wrap.add(m); HELI_MODEL=wrap;
+    }, undefined, (err)=>{ console.warn("plane.glb failed to load — using the built-in chopper", err); });
+  }catch(e){}
+})();
+
+// ---- Helicopter (uses the .glb model when loaded, else built code shapes) ----
 function makeHeli(){
+  if(HELI_MODEL){
+    const g=HELI_MODEL.clone(true);
+    g.userData={rotor:new THREE.Object3D(), trotor:new THREE.Object3D()};  // dummies so anim code is safe
+    return g;
+  }
   const g=new THREE.Group();
   const dark=new THREE.MeshStandardMaterial({color:0x2b3340,roughness:.5,metalness:.4});
   const body=new THREE.Mesh(new THREE.SphereGeometry(2.2,14,12),dark); body.scale.set(1,0.9,1.8); g.add(body);
@@ -2747,8 +2771,8 @@ function makeDeadBody(x,z,ang){
 }
 function makeWreck(x,z){
   const g=makeHeli();
-  g.traverse(o=>{ if(o.isMesh && o.material){ o.material=o.material.clone(); if(o.material.color) o.material.color.multiplyScalar(0.22); o.material.transparent=false; o.material.opacity=1; } });
-  g.position.set(x,1.5,z); g.rotation.set(0.5,rand(0,6.28),0.8); g.scale.setScalar(1.15); dynGroup.add(g);
+  g.traverse(o=>{ if(o.isMesh && o.material){ o.material=o.material.clone(); if(o.material.color) o.material.color.multiplyScalar(0.5); o.material.transparent=false; o.material.opacity=1; } });  // scorched, but still recognisable
+  g.position.set(x,1.5,z); g.rotation.set(0.35,rand(0,6.28),0.6); g.scale.setScalar(1.15); dynGroup.add(g);
   const fireMat=new THREE.MeshBasicMaterial({color:0xff7a1a}); fireMat.fog=false;
   const fires=[];
   for(let i=0;i<6;i++){ const f=new THREE.Mesh(new THREE.ConeGeometry(rand(0.6,1.3),rand(2,3.8),6),fireMat);
