@@ -18,6 +18,10 @@ The name+password pair hashes to a shared PeerJS id that also **seeds the world*
 
 > **Note:** peer-to-peer connects directly between players, which works on most home networks. On some strict/corporate networks (symmetric NAT with no relay) a direct connection can't be established — that's a limitation of free P2P without a paid TURN relay.
 
+## 🎬 Intro cutscene & the goal
+
+Every game opens with a **cutscene**: you and your team are flying in over the island when the **helicopter crashes into the central mountain**. You come to in the evening at the wreck — the **chopper is burning, your whole team is dead**, and in the wreckage you grab a **pistol with 20 rounds**. Your objective: **climb the mountain to the comms tower on the summit and send a distress signal** (press **E** at the tower) to be rescued — that's the win. The cutscene and objective work the same in **online co-op** (any teammate reaching the tower signals for everyone). There are no more helicopters flying around the map; the only chopper is your crashed one. Press **Space/E** to skip the intro.
+
 ## 🌙 Day / night survival loop
 
 - **Day (5 min the first time, then shorter):** loot chests, chop trees for wood, mine rocks for stone, and build/upgrade your base. No zombies.

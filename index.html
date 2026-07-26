@@ -102,6 +102,10 @@
   .victory{color:var(--gold);text-shadow:0 0 30px rgba(255,213,74,.6)}
   .defeat{color:#ff5d73;text-shadow:0 0 30px rgba(255,93,115,.5)}
   .stats{color:#b9c6f0;margin:8px 0;font-size:16px}
+  #fade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;z-index:26}
+  #objective{position:absolute;left:50%;top:60px;transform:translateX(-50%);display:none;
+    background:rgba(8,12,30,.72);border:1px solid rgba(255,213,74,.5);color:#ffe08a;
+    padding:7px 18px;border-radius:20px;font-size:14px;z-index:8;max-width:82vw;text-align:center;text-shadow:0 1px 2px #000}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#05070f;z-index:30;color:#9fb0e0;letter-spacing:2px}
   .err{color:#ff8a8a;max-width:500px;line-height:1.6}
 </style>
@@ -119,6 +123,8 @@
     <div><div class="val" id="zoneVal">1</div><div class="lbl">Ніч</div></div>
   </div>
   <div class="warn" id="warn">🌙 НІЧ — зомбі йдуть! 🧟</div>
+  <div id="objective"></div>
+  <div id="fade"></div>
   <div id="netStatus" style="position:absolute;left:16px;top:64px;font-size:12px;color:#7fe0ff;text-shadow:0 1px 2px #000;letter-spacing:.5px"></div>
   <div class="toast" id="toast"></div>
   <div id="killfeed"></div>
@@ -618,9 +624,9 @@ makeGiantMountain(0,0, MTN_R, MTN_H);            // climbable, collision matches
 function randSpot(minR){ let x,z,tries=0; const lo=Math.max(minR,MTN_R+80);
   do{ const a=wr(0,6.28), r=wr(lo,WORLD-90); x=Math.cos(a)*r; z=Math.sin(a)*r; tries++; } while(tries<50 && Math.hypot(x,z)<lo); return {x,z}; }
 const _shop=randSpot(MTN_R+80), _tck=randSpot(MTN_R+120);
-const _dropA=wr(0,6.28), _dropR=WORLD*0.55;
+const _dropA=wr(0,6.28), _dropR=MTN_R+34;    // crash site: at the foot of the central mountain
 const LOC={ shop:_shop, tck:_tck, busik:{x:_tck.x+12, z:_tck.z+14},
-  drop:{x:Math.cos(_dropA)*_dropR, z:Math.sin(_dropA)*_dropR} };   // land the chopper off-centre, near the mountain
+  drop:{x:Math.cos(_dropA)*_dropR, z:Math.sin(_dropA)*_dropR} };   // where the chopper crashes & you wake up
 
 // text sign board (canvas texture)
 function makeSign(text, bg, fg){
@@ -961,6 +967,7 @@ const net = {
         document.getElementById("zoneVal").textContent=nightNum; } break;
       case "zhit": if(this.isHost()){ const b=bots.find(z=>z.nid===m.nid && z.alive);
         if(b){ b.hp-=m.dmg; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } } break;
+      case "signal": triggerRescue(); break;   // a teammate reached the tower — everyone is rescued
     }
   },
   sendFullBuilds(conn){ for(const s of structures){ if(s.key)
@@ -1626,14 +1633,18 @@ function updateCycle(dt){
     if(phase==="day" && clockT<=0) startNight();
     else if(phase==="night" && clockT<=0) startDay();
   }
-  // sky/light lerp toward day or night look (all players)
+  // sky/light lerp toward day / dusk / night look (all players)
   const night = phase==="night";
-  const k = clamp(night ? 1-clockT/NIGHT_LEN*0 : 0, 0,1); // simple: full night vs full day
   const t = night?1:0;
-  sun.intensity += ((t?0.15:1.15)-sun.intensity)*Math.min(1,dt*2);
-  hemi.intensity += ((t?0.25:0.85)-hemi.intensity)*Math.min(1,dt*2);
-  const dayCol=new THREE.Color(0x8fb7e8), nightCol=new THREE.Color(0x0a1024);
-  scene.background.lerp(t?nightCol:dayCol, Math.min(1,dt*2));
+  // dusk: the last ~90s of daytime warm up and dim down into evening
+  const dusk = (!night && clockT<90) ? clamp(1-clockT/90,0,1) : 0;
+  const sunTgt  = night?0.15 : 1.15-dusk*0.75;
+  const hemiTgt = night?0.25 : 0.85-dusk*0.45;
+  sun.intensity  += (sunTgt -sun.intensity )*Math.min(1,dt*2);
+  hemi.intensity += (hemiTgt-hemi.intensity)*Math.min(1,dt*2);
+  const dayCol=new THREE.Color(0x8fb7e8), duskCol=new THREE.Color(0xdb8a4c), nightCol=new THREE.Color(0x0a1024);
+  const tgt = night?nightCol : dayCol.clone().lerp(duskCol,dusk);
+  scene.background.lerp(tgt, Math.min(1,dt*2));
   if(scene.fog) scene.fog.color.copy(scene.background);
   // HUD phase readout
   const mm=Math.max(0,Math.floor(clockT/60)), ss=Math.max(0,Math.floor(clockT%60));
@@ -2203,10 +2214,11 @@ addEventListener("keydown",e=>{
   keys[e.code]=true;
   if(!running) return;
   const c=e.code;
+  if(state==="cutscene"){ if(c==="Space"||c==="Enter"||c==="Escape"||c==="KeyE") finishCutscene(); return; }  // skip intro
   if(crafting){ if(c==="Escape"||c==="KeyE") closeCraft(); return; }   // craft menu open: freeze game keys
   if(c==="KeyB"){ if(!player.vehicle){ buildMode=!buildMode; updateModeTag(); } }
   else if(c==="KeyR"){ startReload(); }
-  else if(c==="KeyE"){ const dr=nearDoor(); if(nearBench()) openCraft(); else if(dr) toggleDoor(dr); else tryOpenChest(); }
+  else if(c==="KeyE"){ if(nearTower()){ sendSignal(); } else { const dr=nearDoor(); if(nearBench()) openCraft(); else if(dr) toggleDoor(dr); else tryOpenChest(); } }
   else if(c==="KeyF"){ toggleVehicle(); }
   else if(c==="KeyU"){ if(buildMode) upgradeAimed(); }
   else if(c==="KeyM"){ toggleMusic(); }
@@ -2442,6 +2454,7 @@ function updateSkydive(dt){
   warnEl.style.opacity=1;
 }
 function animWorld(dt){
+  animCrashFire(dt);            // the crashed chopper keeps burning
   // waving flags
   const t=performance.now()*0.004;
   for(const f of flagAnims){
@@ -2548,6 +2561,23 @@ function update(dt){
   if(buildMode) updateGhost();
   }  // end on-foot control
 
+  // ---- Story: pick up the pistol from the wreck, and the tower objective ----
+  if(crashLoot && !crashLoot.taken){
+    crashLoot.mesh.rotation.y+=dt*1.5;
+    if(Math.hypot(player.pos.x-crashLoot.x, player.pos.z-crashLoot.z)<2.6){
+      crashLoot.taken=true; dynGroup.remove(crashLoot.mesh);
+      const mag=WEAPONS.pistol.mag, ammo=Math.min(mag,20);
+      player.inv.pistol={ammo, reserve:Math.max(0,20-ammo)};
+      selectWeapon("pistol"); buildInvBar();
+      toast("🔫 Пістолет з уламків — 20 набоїв. Пробивайся до вишки!");
+    }
+  }
+  if(!signalSent){
+    const near=nearTower();
+    if(near!==_objNear){ _objNear=near;
+      setObjective(near ? "Натисни <b>E</b> — надіслати сигнал допомоги 📡"
+                        : "🎯 Дійди до 📡 <b>вишки на вершині гори</b> й надішли сигнал"); }
+  }
   // ---- Chests auto-hint / loot pickup ----
   for(const c of chests){ if(!c.opened){ c.bob+=dt*3; c.lid.position.y=1.0+Math.sin(c.bob)*0.03; } }
   for(let i=loots.length-1;i>=0;i--){
@@ -2669,12 +2699,123 @@ let _frame=0;
 function loop(ts){
   if(!running) return;
   const dt=Math.min(0.05,(ts-lastTime)/1000||0); lastTime=ts;
-  update(dt);
+  if(state==="cutscene") updateCutscene(dt);   // intro plays before control is handed over
+  else update(dt);
   updateMusic();                          // swap day/night ambience on phase change
   // refresh the shadow map every other frame (~30Hz) instead of every frame
   renderer.shadowMap.needsUpdate = ((_frame++ & 1) === 0);
   renderer.render(scene,camera);
   requestAnimationFrame(loop);
+}
+
+// ===================================================================
+//  Intro cutscene: your team's chopper crashes into the mountain,
+//  you wake up at the wreck and must reach the summit tower to signal for help.
+//  (Runs client-side, so it works the same in offline and online co-op.)
+// ===================================================================
+let cutscene=null, crashLoot=null, crashFires=null, signalSent=false, _objNear=null;
+const fadeEl=document.getElementById("fade");
+const objEl=document.getElementById("objective");
+function setObjective(html){ if(!objEl) return; if(html){ objEl.style.display="block"; objEl.innerHTML=html; } else objEl.style.display="none"; }
+
+function makeDeadBody(x,z,ang){
+  const g=makeAvatar();
+  g.traverse(o=>{ if(o.isMesh && o.material && o.material.color){ o.material=o.material.clone(); o.material.color.multiplyScalar(0.55); } });
+  g.rotation.set(Math.PI/2, ang, 0); g.position.set(x,0.5,z); dynGroup.add(g);
+}
+function makeWreck(x,z){
+  const g=makeHeli();
+  g.traverse(o=>{ if(o.isMesh && o.material){ o.material=o.material.clone(); if(o.material.color) o.material.color.multiplyScalar(0.22); o.material.transparent=false; o.material.opacity=1; } });
+  g.position.set(x,1.5,z); g.rotation.set(0.5,rand(0,6.28),0.8); g.scale.setScalar(1.15); dynGroup.add(g);
+  const fireMat=new THREE.MeshBasicMaterial({color:0xff7a1a}); fireMat.fog=false;
+  const fires=[];
+  for(let i=0;i<6;i++){ const f=new THREE.Mesh(new THREE.ConeGeometry(rand(0.6,1.3),rand(2,3.8),6),fireMat);
+    f.position.set(x+rand(-2.2,2.2),1.4+rand(0,1.2),z+rand(-2.2,2.2)); dynGroup.add(f); fires.push(f); }
+  const light=new THREE.PointLight(0xff7028,2.2,45); light.position.set(x,4,z); dynGroup.add(light);
+  crashFires={fires,light};
+}
+function animCrashFire(dt){
+  if(!crashFires) return;
+  const t=performance.now()*0.008;
+  for(const f of crashFires.fires){ f.scale.y=0.7+Math.sin(t*3+f.position.x)*0.35; f.rotation.y+=dt*4; }
+  crashFires.light.intensity=1.8+Math.sin(t*5)*0.8;
+}
+function startCutscene(){
+  signalSent=false; crashLoot=null; crashFires=null; _objNear=null;
+  const cx=LOC.drop.x, cz=LOC.drop.z;
+  const dir=new THREE.Vector2(cx,cz).normalize();       // centre -> crash site
+  player.pos.set(cx, groundHeightAt(cx,cz), cz);
+  player.yaw=Math.atan2(dir.x, dir.y);                  // wake up facing the mountain
+  player.pitch=0; player.alive=true; player.skydiving=false;
+  // crash-site props
+  makeWreck(cx,cz);
+  for(let i=0;i<3;i++){ const a=rand(0,6.28), r=rand(3.5,6.5); makeDeadBody(cx+Math.cos(a)*r, cz+Math.sin(a)*r, a); }
+  // pistol loot glinting by the wreck
+  const pg=new THREE.Group();
+  const pistol=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.32,1.0),new THREE.MeshStandardMaterial({color:0x2a2f3a,metalness:.6,roughness:.4}));
+  pistol.position.y=0.5; pg.add(pistol);
+  const glowMat=new THREE.MeshBasicMaterial({color:0xffe08a,transparent:true,opacity:0.28}); glowMat.fog=false;
+  const glow=new THREE.Mesh(new THREE.SphereGeometry(0.85,10,10),glowMat); glow.position.y=0.55; pg.add(glow);
+  const lx=cx+Math.cos(player.yaw)*2.6, lz=cz+Math.sin(player.yaw)*2.6;
+  pg.position.set(lx,0,lz); dynGroup.add(pg);
+  crashLoot={mesh:pg, x:lx, z:lz, taken:false};
+  // the doomed chopper approaching the mountain
+  const heli2=makeHeli(); scene.add(heli2);
+  const flyStart=new THREE.Vector3(dir.x*(MTN_R+560),215,dir.y*(MTN_R+560));
+  const ix=dir.x*MTN_R*0.62, iz=dir.y*MTN_R*0.62;
+  const impact=new THREE.Vector3(ix, mountainHeightAt(ix,iz)+14, iz);
+  cutscene={ t:0, phase:"fly", heli:heli2, dir, flyStart, impact, woke:false };
+  if(fadeEl){ fadeEl.style.transition="none"; fadeEl.style.opacity="0"; }
+  state="cutscene";
+}
+const FLY_T=4.4;
+function updateCutscene(dt){
+  const c=cutscene; if(!c) return;
+  c.t+=dt; net.tick(dt); animCrashFire(dt);
+  if(c.phase==="fly"){
+    const f=Math.min(1,c.t/FLY_T), ef=f*f;             // accelerate into the mountain
+    const pos=c.flyStart.clone().lerp(c.impact, ef);
+    if(c.heli){ c.heli.userData.rotor.rotation.y+=dt*34; c.heli.userData.trotor.rotation.x+=dt*44;
+      c.heli.position.copy(pos); c.heli.lookAt(c.impact); c.heli.rotateY(Math.PI);
+      c.heli.rotation.z+=Math.sin(c.t*8)*0.05*f; }
+    const cam=pos.clone().add(new THREE.Vector3(c.dir.x*42,16,c.dir.y*42));
+    if(f>0.75){ const s=(f-0.75)*4; cam.x+=rand(-1,1)*s*2; cam.y+=rand(-1,1)*s*2; }
+    camera.position.copy(cam); camera.lookAt(c.impact.x,c.impact.y-6,c.impact.z);
+    if(c.t>=FLY_T){                                     // ---- CRASH ----
+      if(c.heli){ scene.remove(c.heli); c.heli=null; }
+      for(let i=0;i<3;i++) burst(c.impact.x+rand(-4,4),c.impact.y+rand(-2,4),c.impact.z+rand(-4,4),0xff8a2a,10);
+      if(typeof playExplosion==="function") playExplosion(0.9);
+      if(fadeEl){ fadeEl.style.transition="opacity .5s"; fadeEl.style.opacity="1"; }
+      c.phase="black";
+    }
+  } else {                                             // black -> wake at the wreck
+    camera.position.set(player.pos.x, player.pos.y+EYE, player.pos.z);
+    camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
+    if(c.t>=FLY_T+1.1 && !c.woke){ c.woke=true;
+      if(fadeEl){ fadeEl.style.transition="opacity 1.4s"; fadeEl.style.opacity="0"; }
+      setObjective("🎯 Дійди до 📡 <b>вишки на вершині гори</b> й надішли сигнал допомоги");
+      toast("Ти отямився ввечері… вертоліт розбився об гору, команда загинула. 🚁🔥");
+    }
+    if(c.t>=FLY_T+3.6) finishCutscene();
+  }
+}
+function finishCutscene(){
+  if(!cutscene) return;
+  cutscene=null;
+  if(fadeEl){ fadeEl.style.transition="opacity .35s"; fadeEl.style.opacity="0"; }
+  state="play"; lastTime=performance.now();
+  if(!signalSent) setObjective("🎯 Дійди до 📡 <b>вишки на вершині гори</b> й надішли сигнал допомоги");
+  renderer.domElement.requestPointerLock();
+}
+// distress signal at the summit tower
+function nearTower(){ return Math.hypot(player.pos.x,player.pos.z)<16 && player.pos.y>MTN_H-26; }
+function sendSignal(){ if(signalSent) return; net.send({t:"signal"}); triggerRescue(); }
+function triggerRescue(){
+  if(signalSent) return; signalSent=true;
+  setObjective(null);
+  toast("📡 СИГНАЛ ДОПОМОГИ НАДІСЛАНО! Тримайся — по тебе летять! 🚁");
+  for(let i=0;i<5;i++) setTimeout(()=>burst(rand(-6,6),MTN_H+70+i*10,rand(-6,6),0x66ff88,16), i*160);
+  setTimeout(()=>{ if(state==="play") endGame(true); }, 4200);
 }
 
 // ===================================================================
@@ -2690,29 +2831,21 @@ function startGame(){
   player=makePlayer();
   killCount=0; buildMode=false; buildPiece="wall";
 
-  // ---- Deploy: start high in the sky, jump from a helicopter ----
-  const dropX=LOC.drop.x+rand(-30,30), dropZ=LOC.drop.z+rand(-30,30);
-  player.pos.set(dropX,130,dropZ);
-  player.vel.set(0,-4,0);
-  player.skydiving=true; player.parachute=false;
-  player.yaw=rand(0,Math.PI*2);
-  player.pitch=-0.55;                                     // look down
+  // ---- You wake at the crash site (set up by the intro cutscene) ----
+  player.pos.set(LOC.drop.x,0,LOC.drop.z);
+  player.vel.set(0,0,0);
+  player.skydiving=false; player.parachute=false;
+  player.pitch=0;
 
-  initCycle();                         // day/night: night comes after 5 min
+  initCycle(); clockT=70;              // wake up in the evening — night falls soon
   if(net.online && !net.peer) net.connect();   // join the co-op session (P2P)
-  spawnChests(); spawnCars(); spawnEnemyHelis(3);   // zombies spawn at night, not now
+  spawnChests(); spawnCars();          // no helicopters anymore
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
+  setObjective(null);
 
-  // helicopter drops you off
-  heli=makeHeli(); heliT=0;
-  heli.userData.dir=player.yaw+Math.PI/2;
-  heli.position.set(dropX-28,135,dropZ-28);
-  dynGroup.add(heli);
-
-  toast("День 1 ☀ — збирай ресурси й будуй базу. Ніч через 5 хв!");
   startMusic();                        // dark apocalypse ambience
-  state="play"; running=true; lastTime=performance.now();
-  renderer.domElement.requestPointerLock();
+  startCutscene();                     // intro: the team's chopper crashes into the mountain
+  running=true; lastTime=performance.now();
   requestAnimationFrame(loop);
 }
 
@@ -2721,10 +2854,16 @@ function endGame(victory){
   state="over"; running=false;
   stopMusic();
   document.exitPointerLock && document.exitPointerLock();
+  setObjective(null);
   const end=document.getElementById("endScreen");
   const res=document.getElementById("resultText");
-  res.textContent="ТЕБЕ З'ЇЛИ 🧟"; res.className="result defeat";
-  document.getElementById("endFlavor").textContent="Зомбі дістали тебе. Наступного разу побудуй міцнішу базу!";
+  if(victory){
+    res.textContent="🚁 ВРЯТОВАНО!"; res.className="result victory";
+    document.getElementById("endFlavor").textContent="Ти дійшов до вишки, надіслав сигнал допомоги — і по тебе прилетіли. Ти вижив!";
+  } else {
+    res.textContent="ТЕБЕ З'ЇЛИ 🧟"; res.className="result defeat";
+    document.getElementById("endFlavor").textContent="Зомбі дістали тебе. Наступного разу побудуй міцнішу базу!";
+  }
   document.getElementById("endStats").innerHTML=
     `Пережито ночей: <b style="color:var(--gold)">${Math.max(0,nightNum-(phase==="night"?1:0))}</b> · Вбито зомбі: <b style="color:var(--cyan)">${killCount}</b> · Дійшов до Ночі <b>${nightNum}</b>`;
   setTimeout(()=>end.classList.remove("hidden"),600);
