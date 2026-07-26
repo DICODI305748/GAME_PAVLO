@@ -2778,9 +2778,11 @@ function updateCutscene(dt){
     if(c.heli){ c.heli.userData.rotor.rotation.y+=dt*34; c.heli.userData.trotor.rotation.x+=dt*44;
       c.heli.position.copy(pos); c.heli.lookAt(c.impact); c.heli.rotateY(Math.PI);
       c.heli.rotation.z+=Math.sin(c.t*8)*0.05*f; }
-    const cam=pos.clone().add(new THREE.Vector3(c.dir.x*42,16,c.dir.y*42));
-    if(f>0.75){ const s=(f-0.75)*4; cam.x+=rand(-1,1)*s*2; cam.y+=rand(-1,1)*s*2; }
-    camera.position.copy(cam); camera.lookAt(c.impact.x,c.impact.y-6,c.impact.z);
+    // camera sits in the cockpit (just behind the nose glass), looking out at the mountain rushing up
+    const fwd=new THREE.Vector3().subVectors(c.impact,pos).normalize();
+    const cam=pos.clone().add(fwd.clone().multiplyScalar(4.4)).add(new THREE.Vector3(0,0.5,0));
+    if(f>0.5){ const s=(f-0.5)*2.6; cam.x+=rand(-1,1)*s; cam.y+=rand(-1,1)*s; cam.z+=rand(-1,1)*s; }  // shakes as it fails
+    camera.position.copy(cam); camera.lookAt(c.impact.x,c.impact.y-4,c.impact.z);
     if(c.t>=FLY_T){                                     // ---- CRASH ----
       if(c.heli){ scene.remove(c.heli); c.heli=null; }
       for(let i=0;i<3;i++) burst(c.impact.x+rand(-4,4),c.impact.y+rand(-2,4),c.impact.z+rand(-4,4),0xff8a2a,10);
@@ -2812,10 +2814,11 @@ function nearTower(){ return Math.hypot(player.pos.x,player.pos.z)<16 && player.
 function sendSignal(){ if(signalSent) return; net.send({t:"signal"}); triggerRescue(); }
 function triggerRescue(){
   if(signalSent) return; signalSent=true;
-  setObjective(null);
-  toast("📡 СИГНАЛ ДОПОМОГИ НАДІСЛАНО! Тримайся — по тебе летять! 🚁");
-  for(let i=0;i<5;i++) setTimeout(()=>burst(rand(-6,6),MTN_H+70+i*10,rand(-6,6),0x66ff88,16), i*160);
-  setTimeout(()=>{ if(state==="play") endGame(true); }, 4200);
+  // signal sent — the game KEEPS GOING (no victory screen); just survive on
+  setObjective("✅ Сигнал допомоги надіслано — тримайся й виживай!");
+  setTimeout(()=>setObjective(null), 8000);
+  toast("📡 СИГНАЛ ДОПОМОГИ НАДІСЛАНО! Допомога в дорозі — тримайся! 🚁");
+  for(let i=0;i<6;i++) setTimeout(()=>burst(rand(-6,6),MTN_H+70+i*12,rand(-6,6),0x66ff88,16), i*160);
 }
 
 // ===================================================================
