@@ -38,9 +38,9 @@ You start with **only a pickaxe and axe — no guns**, and weapons no longer dro
 
 ## ✈️ 3D models (.glb)
 
-Lots of the game is loaded from real **`.glb` models** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`): the aircraft (`plane.glb`), the walking **zombies** (`zombie.glb`, rigged — its walk animation plays), and the **trees, rocks and iron ore** (`tree.glb`, `rock.glb`, `iron.glb`). To swap any of them, drop a different `.glb` in with the same name. If a model can't be loaded the game silently falls back to the built-in code-drawn shapes.
+Lots of the game is loaded from real **`.glb` models** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`): the aircraft (`plane.glb`), the walking **zombies** (`zombie.glb`, rigged — its walk animation plays), the **trees, rocks and iron ore** (`tree.glb`, `rock.glb`, `iron.glb`), and decorative **grass clumps** (`grass.glb`) scattered as ground cover. To swap any of them, drop a different `.glb` in with the same name. If a model can't be loaded the game silently falls back to the built-in code-drawn shapes (grass simply doesn't appear).
 
-Because the tree/rock/iron models load asynchronously, the vegetation is placed once they're ready. The rock model is high-poly, so the number of rocks is capped for performance.
+Because the tree/rock/iron/grass models load asynchronously, the vegetation is placed once they're ready. The rock and grass models are relatively heavy, so their counts are capped for performance (grass clumps are decorative — no collision, not harvestable). The ground itself is painted with a **grassy texture** so the whole island reads as a green meadow.
 
 > **Important:** browsers only load `.glb` files over **http://**, not `file://`. Open the game through a local server (see below) or the model won't appear (you'll get the fallback shape).
 

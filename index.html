@@ -362,7 +362,26 @@ function addBoxCollider(cx, cz, hx, hz){
   return c;
 }
 
-// ---- Island: round green landmass + sandy beach ring + surrounding ocean ----
+// Procedural grass ground texture (dark olive grass + sparse pale flecks/pebbles)
+function makeGrassTexture(){
+  const cv=document.createElement("canvas"); cv.width=cv.height=256; const c=cv.getContext("2d");
+  c.fillStyle="#47612b"; c.fillRect(0,0,256,256);                       // olive-green base
+  for(let i=0;i<5000;i++){                                              // fine grass-blade noise
+    const x=Math.random()*256, y=Math.random()*256, gg=70+Math.random()*70;
+    c.strokeStyle="rgba("+Math.floor(28+Math.random()*40)+","+Math.floor(gg)+","+Math.floor(22+Math.random()*30)+","+(0.25+Math.random()*0.4)+")";
+    c.lineWidth=Math.random()<0.6?1:2; const a=Math.random()*6.28, l=2+Math.random()*4;
+    c.beginPath(); c.moveTo(x,y); c.lineTo(x+Math.cos(a)*l,y+Math.sin(a)*l); c.stroke();
+  }
+  for(let i=0;i<75;i++){                                                // pale flecks / small pebbles
+    const x=Math.random()*256, y=Math.random()*256, r=1+Math.random()*2.6, v=195+Math.random()*50;
+    c.fillStyle="rgba("+v+","+v+","+(v-12)+","+(0.55+Math.random()*0.35)+")";
+    c.beginPath(); c.ellipse(x,y,r,r*0.72,Math.random()*6.28,0,6.28); c.fill();
+  }
+  const tex=new THREE.CanvasTexture(cv); tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
+  tex.anisotropy=4; tex.repeat.set(WORLD/4, WORLD/4);   // ~8-unit tiles across the island
+  return tex;
+}
+// ---- Island: round grassy landmass + sandy beach ring + surrounding ocean ----
 {
   // ocean — a huge plane under everything, fades into the fog at the horizon
   const sea = new THREE.Mesh(new THREE.PlaneGeometry(WORLD*3, WORLD*3),
@@ -374,19 +393,10 @@ function addBoxCollider(cx, cz, hx, hz){
     new THREE.MeshStandardMaterial({color:0xd8c98a, roughness:1}));
   beach.rotation.x=-Math.PI/2; beach.position.y=-0.12; beach.receiveShadow=true; staticGroup.add(beach);
 
-  // the island itself
+  // the island itself — grassy texture
   const g = new THREE.Mesh(new THREE.CircleGeometry(WORLD, 80),
-    new THREE.MeshStandardMaterial({color:0x4b7a3a, roughness:1}));
+    new THREE.MeshStandardMaterial({map:makeGrassTexture(), color:0xcfe0b0, roughness:1}));
   g.rotation.x=-Math.PI/2; g.receiveShadow=true; staticGroup.add(g); bulletMeshes.push(g);
-
-  // subtle patchwork tiles for depth (kept inside the island disc)
-  const tile = new THREE.MeshStandardMaterial({color:0x53853f, roughness:1});
-  for(let i=0;i<120;i++){
-    const s=rand(24,72), a=rand(0,6.28), rr=Math.sqrt(rand(0,1))*(WORLD-40);
-    const m=new THREE.Mesh(new THREE.PlaneGeometry(s,s), tile);
-    m.rotation.x=-Math.PI/2; m.position.set(Math.cos(a)*rr,0.02,Math.sin(a)*rr);
-    m.receiveShadow=true; staticGroup.add(m);
-  }
 }
 
 // Shared tree materials (reused across all trees for performance)
@@ -422,6 +432,14 @@ function placeProp(MODEL,x,z,sc,harvest,hp,colHalf){
   const col=addBoxCollider(x,z,colHalf,colHalf);
   if(mesh){ bulletMeshes.push(mesh); mesh.userData.harvest=harvest; mesh.userData.hp=hp; mesh.userData.rootGroup=g; mesh.userData.col=col; }
   return g;
+}
+
+// Grass tufts — a decorative .glb clump (no collider, not harvestable), scattered as ground cover
+let GRASS_MODEL=null;
+function placeGrass(x,z,sc){
+  if(!GRASS_MODEL) return;
+  const g=GRASS_MODEL.clone(true); g.position.set(x,0,z); g.scale.setScalar(sc); g.rotation.y=wr(0,6.28);
+  staticGroup.add(g); g.updateMatrixWorld(true);
 }
 
 // Trees — two kinds for variety
@@ -482,6 +500,7 @@ let treeCount=0, rockCount=0, ironCount=0;
 // spread EVENLY across the whole island instead of filling one side and stopping.
 // The rock model is very high-poly, so cap how many rocks/iron are placed.
 const STEP=17, TREE_CAP=2000, ROCK_CAP=220, IRON_CAP=160;   // models simplified (rock ~2k, iron ~1k tris) -> plenty allowed
+const GRASS_CAP=110; let grassCount=0;                       // decorative grass clumps (~20k tris each) -> capped
 function placeVegetation(){
   for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
     for(let gz=-WORLD+18; gz<WORLD-18; gz+=STEP){
@@ -500,6 +519,22 @@ function placeVegetation(){
       }
     }
   }
+  // Grass clumps — spread as ground cover, thicker in the open clearings (own wrand pass
+  // AFTER the tree/rock/iron loop so it doesn't shift their placement / co-op seed).
+  if(GRASS_MODEL){
+    for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
+      for(let gz=-WORLD+18; gz<WORLD-18; gz+=STEP){
+        const n=fbm(gx*0.006+50, gz*0.006+50);
+        const jx=gx+wr(-STEP*0.5,STEP*0.5), jz=gz+wr(-STEP*0.5,STEP*0.5);
+        const rad=Math.hypot(jx,jz);
+        if(rad<MTN_R+40 || rad>WORLD-16) continue;
+        // more grass in open meadows (low forest density), less inside thick woods
+        if(grassCount<GRASS_CAP && wrand() < 0.14*(1-n*0.6)){
+          placeGrass(jx,jz, wr(0.7,1.3)); grassCount++;
+        }
+      }
+    }
+  }
   // freeze the freshly-placed static props so they don't recompute matrices each frame
   staticGroup.updateMatrixWorld(true);
   staticGroup.traverse(o=>{ if(!o.userData.anim) o.matrixAutoUpdate=false; });
@@ -507,12 +542,13 @@ function placeVegetation(){
 // Trees/rocks/iron use .glb models that load asynchronously — place the vegetation
 // once the models are ready (or right away, with code shapes, if there's no loader).
 (function(){
-  let pending=3, done=false;
+  let pending=4, done=false;
   const go=()=>{ if(!done){ done=true; placeVegetation(); } };
   const ready=()=>{ if(--pending<=0) go(); };
   loadProp("models/tree.glb", 9,   m=>{ TREE_MODEL=m; ready(); });
   loadProp("models/rock.glb", 4.5, m=>{ ROCK_MODEL=m; ready(); });
   loadProp("models/iron.glb", 4,   m=>{ IRON_MODEL=m; ready(); });
+  loadProp("models/grass.glb", 1.3, m=>{ GRASS_MODEL=m; ready(); });
   setTimeout(go, 6000);   // safety net so vegetation always appears even if a model stalls
 })();
 
