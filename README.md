@@ -44,7 +44,9 @@ The aircraft (the crashed chopper at the intro) is loaded from a real **`.glb` m
 
 ## ▶️ Play
 
-Open `index.html` through a local web server (needed for the 3D model and to avoid `file://` limits):
+**Easiest (no terminal):** double-click **`ЗАПУСК-ГРИ.bat`** (Windows) or **`ЗАПУСК-ГРИ.command`** (Mac/Linux). It starts a local web server (using Python or Node — whichever you have) and opens the game in your browser automatically. Keep the window open while you play.
+
+**Or manually,** open `index.html` through a local web server (needed for the 3D model and to avoid `file://` limits):
 
 Local server:
 
