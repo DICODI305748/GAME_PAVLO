@@ -258,12 +258,48 @@ const WORLD = 1000;          // half-extent of the ISLAND (radius) — ~6x the o
 const MTN_R = WORLD*0.19;     // giant central mountain base radius (~190) — kept clear of trees/loot
 const MTN_H = WORLD*0.32;     // mountain height (~320)
 const MTN_FLAT = 20;          // flat summit radius you can stand on (matches the tower platform)
-// Walkable surface height of the mountain at (x,z): a truncated cone you can climb.
+// Walkable surface height of the mountain at (x,z). Once the .glb mountain is
+// placed, `_mtnField` holds a height-map sampled straight off the model's mesh
+// (see buildMountainField), so the collision follows the visible shape EXACTLY.
+// Until then (or with the procedural fallback) it's a truncated cone you can climb.
+let _mtnField=null;   // {minX,minZ,cell,N,data:Float32Array}
 function mountainHeightAt(x,z){
+  const f=_mtnField;
+  if(f){
+    const fx=(x-f.minX)/f.cell, fz=(z-f.minZ)/f.cell, N=f.N;
+    if(fx<0||fz<0||fx>=N-1||fz>=N-1) return 0;
+    const ix=fx|0, iz=fz|0, tx=fx-ix, tz=fz-iz, d=f.data;
+    const h0=d[iz*N+ix]+(d[iz*N+ix+1]-d[iz*N+ix])*tx;          // bilinear sample
+    const h1=d[(iz+1)*N+ix]+(d[(iz+1)*N+ix+1]-d[(iz+1)*N+ix])*tx;
+    return h0+(h1-h0)*tz;
+  }
   const d=Math.hypot(x,z);
   if(d>=MTN_R) return 0;
   if(d<=MTN_FLAT) return MTN_H;                       // flat plateau at the very top
   return MTN_H*(MTN_R-d)/(MTN_R-MTN_FLAT);            // slope down to the ground at the base
+}
+// Sample a height-map off the mountain mesh: fire rays straight down over a grid
+// and record the top surface hit. Runs once, right after the model is placed.
+function buildMountainField(meshes){
+  if(!meshes.length) return;
+  const bb=new THREE.Box3(), tmp=new THREE.Box3();
+  bb.makeEmpty();
+  for(const m of meshes){ tmp.setFromObject(m); bb.union(tmp); }
+  const pad=8, minX=bb.min.x-pad, minZ=bb.min.z-pad;
+  const span=Math.max(bb.max.x-bb.min.x, bb.max.z-bb.min.z)+pad*2;
+  const N=104, cell=span/(N-1);
+  const data=new Float32Array(N*N);
+  const ray=new THREE.Raycaster(); ray.far=MTN_H*2+80;
+  const down=new THREE.Vector3(0,-1,0), origin=new THREE.Vector3(), topY=MTN_H+40;
+  const midX=minX+span/2, midZ=minZ+span/2, rad2=(span/2)*(span/2);   // skip corners outside the footprint circle
+  for(let iz=0;iz<N;iz++){ for(let ix=0;ix<N;ix++){
+    const wx=minX+ix*cell, wz=minZ+iz*cell;
+    if((wx-midX)*(wx-midX)+(wz-midZ)*(wz-midZ) > rad2){ data[iz*N+ix]=0; continue; }
+    origin.set(wx, topY, wz); ray.set(origin, down);
+    const hit=ray.intersectObjects(meshes,true);
+    data[iz*N+ix]= hit.length ? hit[0].point.y : 0;      // top surface (nearest to the sky)
+  } }
+  _mtnField={minX,minZ,cell,N,data};
 }
 const GRID = 6;               // building grid size (also wall width/height)
 const WALL_T = 0.4;           // wall thickness
@@ -734,7 +770,10 @@ function placeMountainModel(model, cx, cz){
   // after scaling: put the peak at (cx,cz) horizontally and the base (min.y) at y=0
   src.position.set(cx-peak.x*Sxz, -box.min.y*Sy, cz-peak.z*Sxz);
   staticGroup.add(wrap); wrap.updateMatrixWorld(true);
-  wrap.traverse(o=>{ if(o.isMesh){ o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
+  const mtnMeshes=[];
+  wrap.traverse(o=>{ if(o.isMesh){ o.updateWorldMatrix(true,false); bulletMeshes.push(o); mtnMeshes.push(o); } });
+  // build the exact collision height-map straight from the placed mesh
+  buildMountainField(mtnMeshes);
 }
 // Place the radio-tower .glb on the summit (feet at topY, centred on cx,cz), scaled to targetH tall.
 function placeTowerModel(model, cx, topY, cz, targetH){
