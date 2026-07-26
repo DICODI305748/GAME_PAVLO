@@ -481,7 +481,7 @@ let treeCount=0, rockCount=0, ironCount=0;
 // Low per-cell chance + high cap => the cap is (almost) never hit mid-loop, so trees
 // spread EVENLY across the whole island instead of filling one side and stopping.
 // The rock model is very high-poly, so cap how many rocks/iron are placed.
-const STEP=17, TREE_CAP=2000, ROCK_CAP=38, IRON_CAP=120;   // rock model is ~53k tris -> keep the count low
+const STEP=17, TREE_CAP=2000, ROCK_CAP=220, IRON_CAP=160;   // models simplified (rock ~2k, iron ~1k tris) -> plenty allowed
 function placeVegetation(){
   for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
     for(let gz=-WORLD+18; gz<WORLD-18; gz+=STEP){
