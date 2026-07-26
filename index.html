@@ -701,9 +701,66 @@ function makeGiantMountain(cx,cz,R,H){
   const mat=new THREE.MeshStandardMaterial({vertexColors:true, roughness:1, flatShading:true}); mat.fog=false;
   const m=new THREE.Mesh(geo,mat); m.position.set(cx,H/2,cz);
   m.castShadow=m.receiveShadow=true; staticGroup.add(m); m.updateMatrixWorld(); bulletMeshes.push(m);
-  makeInternetTower(cx, H, cz);                      // comms station on the flat summit
 }
-makeGiantMountain(0,0, MTN_R, MTN_H);            // climbable, collision matches the visible slope
+
+// ---- .glb central mountain + summit radio tower (fall back to the procedural pair) ----
+// Load a raw .glb scene with the usual material fixes (no normalization here).
+function loadRawModel(url, onDone){
+  if(typeof THREE.GLTFLoader==="undefined"){ onDone&&onDone(null); return; }
+  try{ new THREE.GLTFLoader().load(url, g=>{
+    g.scene.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true;
+      const mats=Array.isArray(o.material)?o.material:[o.material];
+      for(const mt of mats){ if(mt){ if("metalness" in mt) mt.metalness=Math.min(mt.metalness||0,0.15);
+        mt.fog=false; mt.side=THREE.DoubleSide; mt.needsUpdate=true; } } } });
+    onDone&&onDone(g.scene);
+  }, undefined, e=>{ console.warn(url+" failed", e); onDone&&onDone(null); }); }
+  catch(e){ onDone&&onDone(null); }
+}
+// Place the mountain .glb so its PEAK sits at the collision summit (cx,cz,MTN_H) and its
+// base at y=0 — the math height-field (mountainHeightAt) stays the climbable surface.
+function placeMountainModel(model, cx, cz){
+  const src=model.clone(true); const wrap=new THREE.Group(); wrap.add(src);
+  wrap.updateMatrixWorld(true);
+  const box=new THREE.Box3().setFromObject(src); const sz=new THREE.Vector3(); box.getSize(sz);
+  // highest vertex (the peak) in world coords, so we can centre the summit on the origin
+  let peak=new THREE.Vector3(0,-1e9,0), v=new THREE.Vector3();
+  src.traverse(o=>{ if(o.isMesh&&o.geometry&&o.geometry.attributes.position){ const p=o.geometry.attributes.position;
+    o.updateWorldMatrix(true,false);
+    for(let i=0;i<p.count;i++){ v.set(p.getX(i),p.getY(i),p.getZ(i)).applyMatrix4(o.matrixWorld);
+      if(v.y>peak.y) peak.copy(v); } } });
+  const avgHalf=((sz.x)+(sz.z))/4;                     // ~mean base half-width
+  const Sxz=MTN_R/(avgHalf||1), Sy=MTN_H/(sz.y||1);
+  src.scale.set(Sxz,Sy,Sxz);
+  // after scaling: put the peak at (cx,cz) horizontally and the base (min.y) at y=0
+  src.position.set(cx-peak.x*Sxz, -box.min.y*Sy, cz-peak.z*Sxz);
+  staticGroup.add(wrap); wrap.updateMatrixWorld(true);
+  wrap.traverse(o=>{ if(o.isMesh){ o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
+}
+// Place the radio-tower .glb on the summit (feet at topY, centred on cx,cz), scaled to targetH tall.
+function placeTowerModel(model, cx, topY, cz, targetH){
+  const src=model.clone(true); const inner=new THREE.Group(); inner.add(src);
+  inner.updateMatrixWorld(true,true);
+  const box=new THREE.Box3().setFromObject(inner); const sz=new THREE.Vector3(); box.getSize(sz);
+  const s=targetH/(sz.y||1); inner.scale.setScalar(s);
+  const c=new THREE.Vector3(); box.getCenter(c);
+  inner.position.set(-c.x*s, -box.min.y*s, -c.z*s);    // centre x/z, feet at y=0
+  const wrap=new THREE.Group(); wrap.add(inner); wrap.position.set(cx,topY,cz);
+  staticGroup.add(wrap); wrap.updateMatrixWorld(true);
+  wrap.traverse(o=>{ if(o.isMesh){ o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
+  addBoxCollider(cx, cz, Math.max(3,sz.x*s*0.28), Math.max(3,sz.z*s*0.28));  // solid tower base
+}
+// Orchestrate: prefer the .glb models, fall back to the procedural mountain/tower.
+(function(){
+  let pend=2, mtnM=null, twrM=null, done=false;
+  const build=()=>{ if(done) return; done=true;
+    if(mtnM) placeMountainModel(mtnM,0,0); else makeGiantMountain(0,0,MTN_R,MTN_H);
+    if(twrM) placeTowerModel(twrM,0,MTN_H,0,60); else makeInternetTower(0,MTN_H,0);
+  };
+  const step=()=>{ if(--pend<=0) build(); };
+  loadRawModel("models/mountain.glb",    m=>{ mtnM=m; step(); });
+  loadRawModel("models/radio_tower.glb", m=>{ twrM=m; step(); });
+  setTimeout(build, 6000);                            // safety net if a model stalls
+})();
 // smaller peaks ringing the coastline (placed on the island, not in the sea)
 {
   const N=10, rr=WORLD-70;
