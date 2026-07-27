@@ -34,7 +34,7 @@ Build mode (**B**) pieces, all on a Fortnite-style grid: **1** wall · **2** doo
 
 ## 🔨 Crafting weapons
 
-You start with **only a pickaxe and axe — no guns**, and weapons no longer drop from chests. To arm up you must build a **crafting table**: first lay a floor and upgrade it to **metal**, then place the table (slot **9**) *on that metal floor* — it costs **70 🪵 + 90 🪨 + 40 🔩**. Stand next to it and press **E** to open the bench and craft any weapon (pistol, SMG, AR, shotgun, sniper, bazooka) for wood/stone/metal.
+You start with **only a pickaxe and axe — no guns**, and weapons no longer drop from chests. To arm up you must build a **crafting table**: first lay a floor and upgrade it to **metal**, then place the table (slot **9**) *on that metal floor* — it costs **70 🪵 + 90 🪨 + 40 🔩**. Stand next to it and press **E** to open the bench and craft any weapon (pistol, AR, shotgun, sniper, bazooka) for wood/stone/metal.
 
 ## ✈️ 3D models (.glb)
 
@@ -66,7 +66,7 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 | **WASD** | Move · **Shift** sprint · **Space** jump |
 | **Mouse** | Look · **LMB** shoot / place build piece |
 | **B** | Toggle **Combat / Build** mode |
-| **1–7** | Combat: 1-5 guns, 6 pickaxe, 7 axe · Build: 1 wall, 2 door, 3 window, 4 floor, 5 ladder, 6 turret |
+| **1–7** | Combat: 1 pistol, 2 rifle, 3 shotgun, 4 sniper, 5 pickaxe, 6 axe, 7 bazooka · Build: 1 wall, 2 door, 3 window, 4 floor, 5 ladder, 6 turret |
 | **U** | In build mode: upgrade the wooden piece you're aiming at to stone (costs 🪨) |
 | **F** | Enter / exit a **car** |
 | **Mouse wheel** | Cycle weapons |
@@ -78,19 +78,19 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 
 - **Drivable cars & a ТЦК van** — walk up to any vehicle and press **F** to get in. Drive with WASD (accelerate, reverse, steer), and run over enemies at speed. Press **F** again to get out.
 - **Auto-turret** — in Build mode, select slot **4** to place a turret for **30 materials**. It automatically targets and fires at nearby enemies with line-of-sight, and has its own health.
-- **Pickaxe & axe** (slots **6** and **7**) — melee tools that harvest materials. Hit **rocks** with the pickaxe and **trees** with the axe (right tool = bonus materials), or use them as close-range weapons.
+- **Pickaxe & axe** (slots **5** and **6**) — melee tools that harvest materials. Hit **rocks** with the pickaxe and **trees** with the axe (right tool = bonus materials), or use them as close-range weapons.
 
 ## 🔫 Weapons
 
-Five weapons, each with its own damage, fire rate, spread, magazine and range:
+The guns are real **`.glb` models** held in first person (`gun_pistol.glb`, `gun_ar.glb`, `gun_shotgun.glb`, `gun_sniper.glb`, `gun_bazooka.glb` in [`models/`](models/); if one fails to load the game falls back to a code-drawn gun). Four weapons plus the bazooka, each with its own damage, fire rate, spread, magazine and range:
 
-- **Pistol** — reliable starter, semi-auto
-- **SMG** — fast full-auto, high spread
-- **Assault Rifle** — balanced full-auto workhorse
-- **Shotgun** — 9 pellets, devastating up close
+- **Pistol** (Desert Eagle) — reliable starter, semi-auto
+- **Assault Rifle** (M4A1) — balanced full-auto workhorse
+- **Shotgun** — devastating up close, multiple pellets
 - **Sniper** — one-shot potential, scopes in when you aim
+- **Bazooka** — fires explosive rockets with splash damage (dropped by enemy helicopters)
 
-Headshots deal **double damage**. You start with a Pistol + AR; loot the rest from chests and eliminated rivals.
+Headshots deal **double damage**. Craft the guns at a workbench; loot ammo from chests and eliminated rivals.
 
 ## 🧱 Real building
 
@@ -100,7 +100,7 @@ Switch to Build mode (**B**) and place textured pieces: **walls, doors** (walk t
 
 ## 🔊 Sound
 
-Weapon fire, reloads, hitmarkers and turret shots are all synthesized in-browser with the Web Audio API — no external audio files, works fully offline. Each weapon has its own report (punchy pistol, snappy SMG, boomy shotgun, cracking sniper).
+Weapon fire, reloads, hitmarkers and turret shots are all synthesized in-browser with the Web Audio API — no external audio files, works fully offline. Each weapon has its own report (punchy pistol, boomy shotgun, cracking sniper).
 
 ### 🎵 Apocalypse soundtrack
 
@@ -116,7 +116,7 @@ Every match starts with a **helicopter drop**: you skydive from ~130m, free-fall
 
 ## 🚁 Enemy helicopters & the Bazooka
 
-Four **enemy helicopters** patrol the sky each match (orange blips on the minimap). Shoot one down — it takes sustained fire — and it **drops a Bazooka 🚀** that parachutes... well, plummets to the ground. Pick it up (slot **8**) and fire rockets that fly out and **explode on impact**, dealing splash damage to enemies, structures, and other helis. Mind the blast radius — it can hurt you too.
+Four **enemy helicopters** patrol the sky each match (orange blips on the minimap). Shoot one down — it takes sustained fire — and it **drops a Bazooka 🚀** that parachutes... well, plummets to the ground. Pick it up (slot **7**) and fire rockets that fly out and **explode on impact**, dealing splash damage to enemies, structures, and other helis. Mind the blast radius — it can hurt you too.
 
 ## 🌲 Procedural world
 

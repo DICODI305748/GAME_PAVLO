@@ -1106,21 +1106,19 @@ function explode(pos){
 // ===================================================================
 const WEAPONS = {
   pistol:  {name:"Пістолет", key:"1", dmg:24, rof:280, mag:12, reload:900,  spread:0.012, range:120, pellets:1, auto:false, color:0xffe08a, size:[0.18,0.22,0.55]},
-  smg:     {name:"SMG",       key:"2", dmg:15, rof:80,  mag:28, reload:1500, spread:0.045, range:90,  pellets:1, auto:true,  color:0xbfe3ff, size:[0.16,0.24,0.7]},
-  ar:      {name:"Автомат",   key:"3", dmg:28, rof:120, mag:30, reload:1900, spread:0.02,  range:180, pellets:1, auto:true,  color:0xffd54a, size:[0.18,0.26,0.95]},
-  shotgun: {name:"Дробовик",  key:"4", dmg:11, rof:750, mag:6,  reload:2200, spread:0.11,  range:32,  pellets:9, auto:false, color:0xff9d5c, size:[0.22,0.28,0.9]},
-  sniper:  {name:"Снайперка", key:"5", dmg:120,rof:1400,mag:5,  reload:2600, spread:0.002, range:400, pellets:1, auto:false, color:0x9d7dff, size:[0.16,0.24,1.3], scope:true},
-  pickaxe: {name:"Кірка",     key:"6", dmg:40, rof:450, range:6, melee:true, harvest:"stone", color:0x9fb4c8},
-  axe:     {name:"Сокира",    key:"7", dmg:40, rof:450, range:6, melee:true, harvest:"wood",  color:0xcaa16a},
-  bazooka: {name:"Базука",    key:"8", dmg:150,rof:1100,mag:1,  reload:2400, spread:0.004, range:300, pellets:1, rocket:true, splash:9, color:0xff5522, size:[0.3,0.32,1.5]},
+  ar:      {name:"Автомат",   key:"2", dmg:28, rof:120, mag:30, reload:1900, spread:0.02,  range:180, pellets:1, auto:true,  color:0xffd54a, size:[0.18,0.26,0.95]},
+  shotgun: {name:"Дробовик",  key:"3", dmg:11, rof:750, mag:6,  reload:2200, spread:0.11,  range:32,  pellets:9, auto:false, color:0xff9d5c, size:[0.22,0.28,0.9]},
+  sniper:  {name:"Снайперка", key:"4", dmg:120,rof:1400,mag:5,  reload:2600, spread:0.002, range:400, pellets:1, auto:false, color:0x9d7dff, size:[0.16,0.24,1.3], scope:true},
+  pickaxe: {name:"Кірка",     key:"5", dmg:40, rof:450, range:6, melee:true, harvest:"stone", color:0x9fb4c8},
+  axe:     {name:"Сокира",    key:"6", dmg:40, rof:450, range:6, melee:true, harvest:"wood",  color:0xcaa16a},
+  bazooka: {name:"Базука",    key:"7", dmg:150,rof:1100,mag:1,  reload:2400, spread:0.004, range:300, pellets:1, rocket:true, splash:9, color:0xff5522, size:[0.3,0.32,1.5]},
 };
-const WORDER = ["pistol","smg","ar","shotgun","sniper"];      // guns (slots 1-5)
-const GUNS   = ["pistol","smg","ar","shotgun","sniper","bazooka"];  // for wheel cycling
-const ALLSEL = ["pistol","smg","ar","shotgun","sniper","pickaxe","axe","bazooka"]; // selectable 1-8
+const WORDER = ["pistol","ar","shotgun","sniper"];            // guns (slots 1-4)
+const GUNS   = ["pistol","ar","shotgun","sniper","bazooka"];  // for wheel cycling
+const ALLSEL = ["pistol","ar","shotgun","sniper","pickaxe","axe","bazooka"]; // selectable 1-7
 // Crafting recipes at the workbench — cost {wood 🪵, stone 🪨, metal 🔩}
 const CRAFT = {
   pistol:  {w:20, s:0,  m:25},
-  smg:     {w:30, s:20, m:45},
   ar:      {w:40, s:10, m:70},
   shotgun: {w:35, s:25, m:40},
   sniper:  {w:45, s:30, m:90},
@@ -1322,6 +1320,33 @@ function makePlayer(){
   };
 }
 
+// ---- 3D gun models (.glb) for the held viewmodel ----
+// Per-gun orientation so the barrel points forward (-Z) with the sights up (+Y),
+// the target on-screen length, and the held position offset from the camera.
+let GUN_MODELS={};
+const GUNVM={
+  pistol:  {file:"gun_pistol",  rot:[0,Math.PI,0],   len:0.42, pos:[0.24,-0.24,-0.55]},
+  ar:      {file:"gun_ar",      rot:[0,Math.PI/2,0], len:0.95, pos:[0.26,-0.26,-0.8]},
+  shotgun: {file:"gun_shotgun", rot:[0,Math.PI/2,0], len:0.9,  pos:[0.26,-0.26,-0.8]},
+  sniper:  {file:"gun_sniper",  rot:[0,Math.PI,0],   len:1.2,  pos:[0.28,-0.28,-0.9]},
+  bazooka: {file:"gun_bazooka", rot:[0,Math.PI,0],   len:1.35, pos:[0.32,-0.32,-0.95]},
+};
+(function loadGuns(){
+  if(typeof THREE.GLTFLoader==="undefined") return;
+  const L=new THREE.GLTFLoader();
+  for(const key of Object.keys(GUNVM)){
+    L.load("models/"+GUNVM[key].file+".glb", g=>{
+      g.scene.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.frustumCulled=false;
+        const ms=Array.isArray(o.material)?o.material:[o.material];
+        for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.35);
+          if("roughness" in m) m.roughness=Math.max(m.roughness==null?1:m.roughness,0.5);
+          if(m.color&&m.color.getHSL){ const hsl={}; m.color.getHSL(hsl); if(hsl.l<0.14) m.color.setHSL(hsl.h,hsl.s,0.18); } // lift near-black guns so they read up close
+          m.fog=false; m.side=THREE.DoubleSide; m.needsUpdate=true; } } } });
+      GUN_MODELS[key]=g.scene;
+      if(typeof player!=="undefined" && player && player.cur===key) buildViewmodel();  // refresh if held
+    }, undefined, e=>console.warn("gun "+key+" failed", e));
+  }
+})();
 // viewmodel gun attached to camera
 let gunMesh=null, muzzle=null;
 function buildViewmodel(){
@@ -1344,9 +1369,27 @@ function buildViewmodel(){
     muzzle=null;
     gunMesh.scale.setScalar(0.85);
     gunMesh.position.set(0.3,-0.3,-0.8);
+    gunMesh.userData.base={x:0.3,y:-0.3,z:-0.8};
     camera.add(gunMesh);
     return;
   }
+  // --- .glb gun model (oriented, normalized, centred) ---
+  const gm=GUN_MODELS[player.cur], vm=GUNVM[player.cur];
+  if(gm && vm){
+    const orient=new THREE.Group(); orient.add(gm.clone(true)); orient.rotation.set(vm.rot[0],vm.rot[1],vm.rot[2]);
+    gunMesh.add(orient); gunMesh.updateMatrixWorld(true);
+    let box=new THREE.Box3().setFromObject(orient), sz=new THREE.Vector3(); box.getSize(sz);
+    const s=vm.len/(Math.max(sz.x,sz.y,sz.z)||1); orient.scale.setScalar(s);
+    gunMesh.updateMatrixWorld(true); box.setFromObject(orient); const c=new THREE.Vector3(); box.getCenter(c);
+    orient.position.sub(c);                                  // centre the gun in the holder
+    gunMesh.updateMatrixWorld(true); box.setFromObject(orient);
+    muzzle=new THREE.PointLight(0xffdd88,0,8); muzzle.position.set(0,0.02,box.min.z-0.03); gunMesh.add(muzzle); // flash at the barrel tip (-Z)
+    gunMesh.position.set(vm.pos[0],vm.pos[1],vm.pos[2]);
+    gunMesh.userData.base={x:vm.pos[0],y:vm.pos[1],z:vm.pos[2]};
+    camera.add(gunMesh);
+    return;
+  }
+  // --- fallback: code-drawn gun ---
   const body=new THREE.Mesh(new THREE.BoxGeometry(...w.size),
     new THREE.MeshStandardMaterial({color:0x22262f,roughness:.6,metalness:.4}));
   gunMesh.add(body);
@@ -1360,6 +1403,7 @@ function buildViewmodel(){
   muzzle.position.set(0,0,-w.size[2]*0.9); gunMesh.add(muzzle);
   gunMesh.scale.setScalar(0.8);
   gunMesh.position.set(0.28,-0.26,-0.95);
+  gunMesh.userData.base={x:0.28,y:-0.26,z:-0.95};
   camera.add(gunMesh);
 }
 
@@ -2013,7 +2057,7 @@ function getNoise(){
   for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
   _noiseBuf=b; return b;
 }
-const SHOT={ pistol:[0.10,1400,0.22], smg:[0.06,1750,0.15], ar:[0.09,1300,0.19],
+const SHOT={ pistol:[0.10,1400,0.22], ar:[0.09,1300,0.19],
   shotgun:[0.22,780,0.34], sniper:[0.30,560,0.42], melee:[0.14,320,0.22], turret:[0.07,1550,0.10],
   bazooka:[0.35,300,0.4] };
 function playExplosion(vol){
@@ -2121,7 +2165,7 @@ function shoot(){
   playShot(player.cur);
   // muzzle flash + recoil
   if(muzzle){ muzzle.intensity=3; setTimeout(()=>{if(muzzle)muzzle.intensity=0;},50); }
-  if(gunMesh) gunMesh.position.z=-0.78; // kick
+  if(gunMesh) gunMesh.position.z=(gunMesh.userData.base?gunMesh.userData.base.z:-0.95)+0.17; // kick back
   player.pitch=clamp(player.pitch+rand(0.004, w.rocket?0.03:0.012),-1.4,1.4);
 
   if(w.rocket){ fireRocket(); }
@@ -2562,7 +2606,7 @@ function toggleDoor(s, fromNet){
   playBlip(s.door.open?320:210, 0.06);
   if(!fromNet && s.key) net.send({t:"door", key:s.key, open:s.door.open});
 }
-const CRAFT_NAMES={pistol:"Пістолет",smg:"SMG",ar:"Автомат",shotgun:"Дробовик",sniper:"Снайперка",bazooka:"Базука"};
+const CRAFT_NAMES={pistol:"Пістолет",ar:"Автомат",shotgun:"Дробовик",sniper:"Снайперка",bazooka:"Базука"};
 function openCraft(){
   crafting=true; mouseDown=false;
   document.exitPointerLock && document.exitPointerLock();
@@ -2816,11 +2860,12 @@ function update(dt){
   camera.position.set(player.pos.x, player.pos.y+EYE, player.pos.z);
   camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
   // gun recover
-  if(gunMesh){ gunMesh.position.z += (-0.95-gunMesh.position.z)*Math.min(1,dt*12);
+  if(gunMesh){ const bp=gunMesh.userData.base||{x:0.28,y:-0.26,z:-0.95};
+    gunMesh.position.z += (bp.z-gunMesh.position.z)*Math.min(1,dt*12);
     gunMesh.rotation.x += (0-gunMesh.rotation.x)*Math.min(1,dt*10);   // melee swing recover
     // sway
-    gunMesh.position.x=0.28+Math.sin(performance.now()*0.003)*(mx||mz?0.01:0.003);
-    gunMesh.position.y=-0.26+Math.cos(performance.now()*0.006)*(mx||mz?0.01:0.003);
+    gunMesh.position.x=bp.x+Math.sin(performance.now()*0.003)*(mx||mz?0.01:0.003);
+    gunMesh.position.y=bp.y+Math.cos(performance.now()*0.006)*(mx||mz?0.01:0.003);
   }
   // FOV zoom for sniper aim (hold RMB? keep simple: scope weapon narrows fov while firing region)
   const wantFov = (WEAPONS[player.cur].scope && mouseDown)?45:75;
