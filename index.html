@@ -590,7 +590,8 @@ function placeVegetation(){
 })();
 
 // Pre-built houses (loot landmarks) — real walls with a doorway + roof
-function makeHouse(cx, cz, w, d){
+// Code-drawn house — kept as one of the 3 variants and the fallback if a model won't load.
+function makeHouseProc(cx, cz, w, d){
   const wallMat=new THREE.MeshStandardMaterial({color:0xb08d57,roughness:.95});
   const roofMat=new THREE.MeshStandardMaterial({color:0x8a3b2e,roughness:.9});
   const H=6, t=0.5;
@@ -614,14 +615,53 @@ function makeHouse(cx, cz, w, d){
   const roof=new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*1.5,3.5,4),roofMat);
   roof.position.set(cx,H+1.6,cz); roof.rotation.y=Math.PI/4; roof.castShadow=true;
   staticGroup.add(roof);
-  return {cx,cz};
 }
+// Place a .glb house model at (cx,cz), rotated by yaw, scaled so its footprint is ~targetW wide,
+// base sitting at y=0, with a solid box collider.
+let HOUSE_MODELS=[];                               // loaded .glb house scenes (index 0,1)
+const HOUSE_FILES=["house1","house2"];
+function placeHouseModel(model, cx, cz, yaw, targetW){
+  const orient=new THREE.Group(); orient.add(model.clone(true)); orient.rotation.y=yaw;
+  const wrap=new THREE.Group(); wrap.add(orient); wrap.position.set(cx,0,cz);
+  staticGroup.add(wrap); wrap.updateMatrixWorld(true);
+  let box=new THREE.Box3().setFromObject(orient), sz=new THREE.Vector3(); box.getSize(sz);
+  const s=targetW/(Math.max(sz.x,sz.z)||1); orient.scale.setScalar(s);
+  wrap.updateMatrixWorld(true); box.setFromObject(orient); const c=new THREE.Vector3(); box.getCenter(c);
+  orient.position.set(-c.x, -box.min.y, -c.z);     // centre x/z, base at y=0
+  wrap.updateMatrixWorld(true);
+  wrap.traverse(o=>{ if(o.isMesh){ o.castShadow=o.receiveShadow=true; o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
+  addBoxCollider(cx, cz, targetW*0.42, targetW*0.42);   // solid house footprint
+}
+// House positions/variants are decided from the seed NOW (so co-op maps match and chest spots
+// exist immediately); the visuals are placed once the async models load (or a timeout).
 const houses=[];
 for(let i=0;i<20;i++){                            // more houses for the bigger island
   const a=wr(0,6.28), r=wr(MTN_R+60, WORLD-70);
-  const x=Math.cos(a)*r, z=Math.sin(a)*r;
-  houses.push(makeHouse(x,z, wr(6,9), wr(6,9)));
+  const cx=Math.cos(a)*r, cz=Math.sin(a)*r;
+  const w=wr(6,9), d=wr(6,9), variant=Math.floor(wr(0,3)), yaw=wr(0,6.28), targetW=wr(13,17);
+  const ca=wr(0,6.28), cr=Math.max(targetW*0.5, Math.max(w,d))+3.5;   // chest sits just outside the house
+  houses.push({cx,cz,w,d,variant,yaw,targetW, chestX:cx+Math.cos(ca)*cr, chestZ:cz+Math.sin(ca)*cr});
 }
+function placeHouses(){
+  for(const h of houses){
+    if(h.variant<HOUSE_FILES.length && HOUSE_MODELS[h.variant]) placeHouseModel(HOUSE_MODELS[h.variant], h.cx, h.cz, h.yaw, h.targetW);
+    else makeHouseProc(h.cx, h.cz, h.w, h.d);     // variant 2, or fallback when a model is missing
+  }
+}
+(function(){
+  let pend=HOUSE_FILES.length, done=false;
+  const go=()=>{ if(done) return; done=true; placeHouses(); };
+  if(typeof THREE.GLTFLoader==="undefined"){ go(); return; }
+  const L=new THREE.GLTFLoader();
+  HOUSE_FILES.forEach((f,idx)=>{
+    L.load("models/"+f+".glb", g=>{
+      g.scene.traverse(o=>{ if(o.isMesh){ const ms=Array.isArray(o.material)?o.material:[o.material];
+        for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.2); m.side=THREE.DoubleSide; m.needsUpdate=true; } } } });
+      HOUSE_MODELS[idx]=g.scene; if(--pend<=0) go();
+    }, undefined, e=>{ console.warn("house "+f+" failed", e); if(--pend<=0) go(); });
+  });
+  setTimeout(go, 6000);
+})();
 
 // ---- Ukraine flags (waving, everywhere) ----
 const flagAnims=[];
@@ -1867,25 +1907,44 @@ function spawnWave(night){
 // ===================================================================
 //  Chests / loot
 // ===================================================================
+// Treasure-chest .glb, normalized once to ~1.7 wide with its base at y=0.
+let CHEST_MODEL=null;
+(function(){
+  if(typeof THREE.GLTFLoader==="undefined") return;
+  new THREE.GLTFLoader().load("models/chest.glb", g=>{
+    const s=g.scene; s.traverse(o=>{ if(o.isMesh){ o.castShadow=true;
+      const ms=Array.isArray(o.material)?o.material:[o.material];
+      for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.3); m.side=THREE.DoubleSide; m.needsUpdate=true; } } } });
+    const wrap=new THREE.Group(); wrap.add(s); wrap.updateMatrixWorld(true);
+    let box=new THREE.Box3().setFromObject(s), sz=new THREE.Vector3(); box.getSize(sz);
+    s.scale.setScalar(1.7/(Math.max(sz.x,sz.z)||1)); wrap.updateMatrixWorld(true);
+    box.setFromObject(s); const c=new THREE.Vector3(); box.getCenter(c);
+    s.position.set(-c.x, -box.min.y, -c.z); CHEST_MODEL=wrap;
+  }, undefined, e=>console.warn("chest failed", e));
+})();
 function spawnChests(){
   const mat=new THREE.MeshStandardMaterial({color:0xb9862f,roughness:.6,metalness:.3});
   const lid=new THREE.MeshStandardMaterial({color:0xffd54a,emissive:0x5a4000,emissiveIntensity:.4,metalness:.4,roughness:.4});
   // near houses + scattered
   const spots=[];
-  for(const h of houses) spots.push([h.cx,h.cz]);
+  for(const h of houses) spots.push([h.chestX,h.chestZ]);   // beside each house
   for(const s of extraChestSpots) spots.push(s);   // city chests
   for(let i=0;i<60;i++){ const a=rand(0,6.28), r=rand(MTN_R+30, WORLD-25);   // more chests across the bigger island
     spots.push([Math.cos(a)*r, Math.sin(a)*r]); }
   for(const [x,z] of spots){
-    const g=new THREE.Group();
-    const b=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.9,1),mat); b.position.y=0.45; b.castShadow=true; g.add(b);
-    const l=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.4,1.1),lid); l.position.y=1.0; l.castShadow=true; g.add(l);
+    let g, l;
+    if(CHEST_MODEL){ g=CHEST_MODEL.clone(true); g.rotation.y=rand(0,6.28); l=null; }   // .glb chest (single mesh, no separate lid)
+    else { g=new THREE.Group();
+      const b=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.9,1),mat); b.position.y=0.45; b.castShadow=true; g.add(b);
+      l=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.4,1.1),lid); l.position.y=1.0; l.castShadow=true; g.add(l); }
     g.position.set(x,0,z); dynGroup.add(g);
     chests.push({x,z,mesh:g,lid:l,opened:false,bob:rand(0,6)});
   }
 }
 function openChest(c){
-  c.opened=true; c.lid.rotation.x=-1.2; c.lid.position.z=-0.4;
+  c.opened=true;
+  if(c.lid){ c.lid.rotation.x=-1.2; c.lid.position.z=-0.4; }        // code-drawn lid swings open
+  else if(c.mesh){ c.mesh.rotation.z=(c.mesh.rotation.z||0)+0.1; }  // .glb chest: a little pop
   burst(c.x,1.2,c.z,0xffd54a,20);
   dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "stone");   // every chest gives stone
   if(Math.random()<0.6) dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "metal");  // most chests give metal
@@ -2904,7 +2963,7 @@ function update(dt){
                         : "🎯 Дійди до 📡 <b>вишки на вершині гори</b> й надішли сигнал"); }
   }
   // ---- Chests auto-hint / loot pickup ----
-  for(const c of chests){ if(!c.opened){ c.bob+=dt*3; c.lid.position.y=1.0+Math.sin(c.bob)*0.03; } }
+  for(const c of chests){ if(!c.opened && c.lid){ c.bob+=dt*3; c.lid.position.y=1.0+Math.sin(c.bob)*0.03; } }
   for(let i=loots.length-1;i>=0;i--){
     const l=loots[i]; l.bob+=dt*3;
     if(l.fall){
