@@ -1,6 +1,6 @@
 # 🧟 Zombie Survival 3D
 
-A **3D first-person zombie survival** game in a single HTML file, built with [Three.js](https://threejs.org). Explore a **procedurally generated** world (forests, mountains, a shop, a ТЦК and randomized landmarks), gather **wood 🪵, stone 🪨 and metal 🔩**, and build a fortified base with Fortnite-style pieces. **Every 5 minutes night falls** and a horde of zombies swarms in from the edges — and they **smash through your walls**. Each night there are more of them and they hit harder. Upgrade your walls **wood → stone → metal**, plant **torches and spikes**, mount **turrets**, and survive as many nights as you can.
+A **3D first-person zombie survival** game in a single HTML file, built with [Three.js](https://threejs.org). Explore a **procedurally generated** world (forests, mountains, abandoned houses and randomized landmarks), gather **wood 🪵, stone 🪨 and metal 🔩**, and build a fortified base with Fortnite-style pieces. **Every 5 minutes night falls** and a horde of zombies swarms in from the edges — and they **smash through your walls**. Each night there are more of them and they hit harder. Upgrade your walls **wood → stone → metal**, plant **torches and spikes**, mount **turrets**, and survive as many nights as you can.
 
 ## 🌐 Online co-op — peer-to-peer, no server to run
 
@@ -38,7 +38,7 @@ You start with **only a pickaxe and axe — no guns**, and weapons no longer dro
 
 ## ✈️ 3D models (.glb)
 
-Lots of the game is loaded from real **`.glb` models** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`): the aircraft (`plane.glb`), the walking **zombies** (`zombie.glb`, rigged — its walk animation plays), the **trees, rocks and iron ore** (`tree.glb`, `rock.glb`, `iron.glb`), decorative **grass clumps** (`grass.glb`) scattered as ground cover, the giant central **mountain** (`mountain.glb`), the summit **radio tower** (`radio_tower.glb`), the held **guns** (`gun_*.glb`), the **houses** (`house1.glb`, `house2.glb` — two of the three house variants; the third is code-drawn) and the loot **chest** (`chest.glb`). To swap any of them, drop a different `.glb` in with the same name. If a model can't be loaded the game silently falls back to the built-in code-drawn shapes (grass simply doesn't appear; the mountain/tower/houses/chest fall back to their procedural versions).
+Lots of the game is loaded from real **`.glb` models** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`): the aircraft (`plane.glb`), the walking **zombies** (`zombie.glb`, rigged — its walk animation plays), the **trees, rocks and iron ore** (`tree.glb`, `rock.glb`, `iron.glb`), decorative **grass clumps** (`grass.glb`) scattered as ground cover, the giant central **mountain** (`mountain.glb`), the summit **radio tower** (`radio_tower.glb`), the held **guns** (`gun_*.glb`), the abandoned **houses** (`house1.glb` — each holds a loot chest inside) and the loot **chest** (`chest.glb`). To swap any of them, drop a different `.glb` in with the same name. If a model can't be loaded the game silently falls back to the built-in code-drawn shapes (grass simply doesn't appear; the mountain/tower/houses/chest fall back to their procedural versions).
 
 Because the tree/rock/iron/grass and mountain/tower models load asynchronously, the vegetation and the summit are placed once they're ready. The rock and grass models are relatively heavy, so their counts are capped for performance (grass clumps are decorative — no collision, not harvestable). The mountain model is fitted so its **peak sits exactly on the climbable summit**, and once it's placed the game **samples a height-map straight off the model's mesh** (firing rays down over a grid) so the walkable collision follows the visible mountain **exactly** — every ridge and slope you see is the surface you actually walk on (it falls back to a smooth cone only if the model fails to load). The radio tower stands on that peak — climb to it and press **E** to send the distress signal. The ground itself is painted with a **grassy texture** so the whole island reads as a green meadow.
 
@@ -76,7 +76,7 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 
 ## 🚗 Vehicles, turrets & harvesting tools
 
-- **Drivable cars & a ТЦК van** — walk up to any vehicle and press **F** to get in. Drive with WASD (accelerate, reverse, steer), and run over enemies at speed. Press **F** again to get out.
+- **Drivable cars** — walk up to any vehicle and press **F** to get in. Drive with WASD (accelerate, reverse, steer), and run over enemies at speed. Press **F** again to get out.
 - **Auto-turret** — in Build mode, select slot **4** to place a turret for **30 materials**. It automatically targets and fires at nearby enemies with line-of-sight, and has its own health.
 - **Pickaxe & axe** (slots **5** and **6**) — melee tools that harvest materials. Hit **rocks** with the pickaxe and **trees** with the axe (right tool = bonus materials), or use them as close-range weapons.
 
@@ -110,7 +110,7 @@ The background music is a real **post-apocalyptic dark-ambient soundtrack**. A c
 
 ## 🚁 Helicopter deploy + locations
 
-Every match starts with a **helicopter drop**: you skydive from ~130m, free-fall, then a **blue-and-yellow parachute** opens and you glide down with WASD. Explore themed landmarks — a **МАГАЗИН (shop)** stuffed with loot, a **ТЦК** compound (with its own **ТЦК бусік** van parked outside), plus **waving Ukrainian flags** everywhere and snow-capped **mountains** ringing the map.
+Every match starts with a **helicopter drop**: you skydive from ~130m, free-fall, then a **blue-and-yellow parachute** opens and you glide down with WASD. Explore the island's **abandoned houses** — each one hides a **loot chest inside** — plus **waving Ukrainian flags** everywhere and snow-capped **mountains** ringing the map.
 
 > **Keyboard layout note:** movement reads *physical* keys (`e.code`), so WASD works on any layout — including Ukrainian/Cyrillic. (Earlier it broke because the browser reported "ц" instead of "w".)
 
@@ -120,7 +120,7 @@ Four **enemy helicopters** patrol the sky each match (orange blips on the minima
 
 ## 🌲 Procedural world
 
-The world is a **huge round island** (~6× the area of the old map) ringed by ocean and a sandy beach, with a **giant, rugged snow-covered mountain towering over the very centre** as a landmark you can see from across the map. You can **climb the mountain** — its slope is a walkable surface (and zombies will chase you up it) — to reach the **internet/radio comms station on the summit**: a station building with a satellite dish and a proper **red-and-white lattice antenna tower** (cross-braced legs, mast and a red beacon). Trees now grow **all over the island**, thicker in the woods. Smaller peaks ring the coastline. Everything is **procedurally generated** from a random seed each time the page loads, so every world is different: a value-noise **forest-density field** clusters trees into real woods and clearings (two tree types — pines and round oaks), while rocks and iron ore gather in the sparser patches, and houses, the shop, the ТЦК and loot chests are scattered around the mountain. The helicopter drops you off near the mountain, and at night the horde spawns **around you** (not from a far coast) so the island's size never makes the night a slow trek. Reload for a fresh map.
+The world is a **huge round island** (~6× the area of the old map) ringed by ocean and a sandy beach, with a **giant, rugged snow-covered mountain towering over the very centre** as a landmark you can see from across the map. You can **climb the mountain** — its slope is a walkable surface (and zombies will chase you up it) — to reach the **internet/radio comms station on the summit**: a station building with a satellite dish and a proper **red-and-white lattice antenna tower** (cross-braced legs, mast and a red beacon). Trees now grow **all over the island**, thicker in the woods. Smaller peaks ring the coastline. Everything is **procedurally generated** from a random seed each time the page loads, so every world is different: a value-noise **forest-density field** clusters trees into real woods and clearings (two tree types — pines and round oaks), while rocks and iron ore gather in the sparser patches, and abandoned houses (each with a loot chest inside) and extra chests are scattered around the mountain. The helicopter drops you off near the mountain, and at night the horde spawns **around you** (not from a far coast) so the island's size never makes the night a slow trek. Reload for a fresh map.
 
 ## 🌪️ Battle royale systems
 

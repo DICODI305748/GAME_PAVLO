@@ -617,9 +617,8 @@ function makeHouseProc(cx, cz, w, d){
   staticGroup.add(roof);
 }
 // Place a .glb house model at (cx,cz), rotated by yaw, scaled so its footprint is ~targetW wide,
-// base sitting at y=0, with a solid box collider.
-let HOUSE_MODELS=[];                               // loaded .glb house scenes (index 0,1)
-const HOUSE_FILES=["house1","house2"];
+// base at y=0. The house is WALK-THROUGH (no collider) so you can step inside to the chest.
+let HOUSE_MODEL=null;
 function placeHouseModel(model, cx, cz, yaw, targetW){
   const orient=new THREE.Group(); orient.add(model.clone(true)); orient.rotation.y=yaw;
   const wrap=new THREE.Group(); wrap.add(orient); wrap.position.set(cx,0,cz);
@@ -630,36 +629,30 @@ function placeHouseModel(model, cx, cz, yaw, targetW){
   orient.position.set(-c.x, -box.min.y, -c.z);     // centre x/z, base at y=0
   wrap.updateMatrixWorld(true);
   wrap.traverse(o=>{ if(o.isMesh){ o.castShadow=o.receiveShadow=true; o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
-  addBoxCollider(cx, cz, targetW*0.42, targetW*0.42);   // solid house footprint
 }
-// House positions/variants are decided from the seed NOW (so co-op maps match and chest spots
-// exist immediately); the visuals are placed once the async models load (or a timeout).
+// House positions are decided from the seed NOW (so co-op maps match and the chest spot inside
+// each house exists immediately); the visuals are placed once the async model loads (or a timeout).
 const houses=[];
-for(let i=0;i<20;i++){                            // more houses for the bigger island
+for(let i=0;i<18;i++){
   const a=wr(0,6.28), r=wr(MTN_R+60, WORLD-70);
   const cx=Math.cos(a)*r, cz=Math.sin(a)*r;
-  const w=wr(6,9), d=wr(6,9), variant=Math.floor(wr(0,3)), yaw=wr(0,6.28), targetW=wr(13,17);
-  const ca=wr(0,6.28), cr=Math.max(targetW*0.5, Math.max(w,d))+3.5;   // chest sits just outside the house
-  houses.push({cx,cz,w,d,variant,yaw,targetW, chestX:cx+Math.cos(ca)*cr, chestZ:cz+Math.sin(ca)*cr});
+  const w=wr(6,9), d=wr(6,9), yaw=wr(0,6.28), targetW=wr(13,17);
+  houses.push({cx,cz,w,d,yaw,targetW, chestX:cx, chestZ:cz});   // chest sits INSIDE, at the centre
 }
 function placeHouses(){
   for(const h of houses){
-    if(h.variant<HOUSE_FILES.length && HOUSE_MODELS[h.variant]) placeHouseModel(HOUSE_MODELS[h.variant], h.cx, h.cz, h.yaw, h.targetW);
-    else makeHouseProc(h.cx, h.cz, h.w, h.d);     // variant 2, or fallback when a model is missing
+    if(HOUSE_MODEL) placeHouseModel(HOUSE_MODEL, h.cx, h.cz, h.yaw, h.targetW);
+    else makeHouseProc(h.cx, h.cz, h.w, h.d);       // fallback: code-drawn house (doorway you enter)
   }
 }
 (function(){
-  let pend=HOUSE_FILES.length, done=false;
-  const go=()=>{ if(done) return; done=true; placeHouses(); };
+  let done=false; const go=()=>{ if(done) return; done=true; placeHouses(); };
   if(typeof THREE.GLTFLoader==="undefined"){ go(); return; }
-  const L=new THREE.GLTFLoader();
-  HOUSE_FILES.forEach((f,idx)=>{
-    L.load("models/"+f+".glb", g=>{
-      g.scene.traverse(o=>{ if(o.isMesh){ const ms=Array.isArray(o.material)?o.material:[o.material];
-        for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.2); m.side=THREE.DoubleSide; m.needsUpdate=true; } } } });
-      HOUSE_MODELS[idx]=g.scene; if(--pend<=0) go();
-    }, undefined, e=>{ console.warn("house "+f+" failed", e); if(--pend<=0) go(); });
-  });
+  new THREE.GLTFLoader().load("models/house1.glb", g=>{
+    g.scene.traverse(o=>{ if(o.isMesh){ const ms=Array.isArray(o.material)?o.material:[o.material];
+      for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.2); m.side=THREE.DoubleSide; m.needsUpdate=true; } } } });
+    HOUSE_MODEL=g.scene; go();
+  }, undefined, e=>{ console.warn("house model failed", e); go(); });
   setTimeout(go, 25000);
 })();
 
@@ -870,61 +863,9 @@ function makeSummitCap(){
   }
 }
 
-// ---- Named locations (shop, TCK) — procedurally placed from the seed ----
-// keep everything out of the central mountain and off the coast/water (radial band)
-function randSpot(minR){ let x,z,tries=0; const lo=Math.max(minR,MTN_R+80);
-  do{ const a=wr(0,6.28), r=wr(lo,WORLD-90); x=Math.cos(a)*r; z=Math.sin(a)*r; tries++; } while(tries<50 && Math.hypot(x,z)<lo); return {x,z}; }
-const _shop=randSpot(MTN_R+80), _tck=randSpot(MTN_R+120);
-const _dropA=wr(0,6.28), _dropR=MTN_R+34;    // crash site: at the foot of the central mountain
-const LOC={ shop:_shop, tck:_tck, busik:{x:_tck.x+12, z:_tck.z+14},
-  drop:{x:Math.cos(_dropA)*_dropR, z:Math.sin(_dropA)*_dropR} };   // where the chopper crashes & you wake up
-
-// text sign board (canvas texture)
-function makeSign(text, bg, fg){
-  const cv=document.createElement("canvas"); cv.width=320; cv.height=80;
-  const c=cv.getContext("2d");
-  c.fillStyle=bg; c.fillRect(0,0,320,80);
-  c.strokeStyle="rgba(0,0,0,.45)"; c.lineWidth=7; c.strokeRect(4,4,312,72);
-  c.fillStyle=fg; c.font="bold 46px Arial"; c.textAlign="center"; c.textBaseline="middle";
-  c.fillText(text,160,44);
-  const tex=new THREE.CanvasTexture(cv);
-  const m=new THREE.Mesh(new THREE.PlaneGeometry(8,2),
-    new THREE.MeshBasicMaterial({map:tex,side:THREE.DoubleSide}));
-  return m;
-}
-// open-front building (3 walls + roof + floor + sign) you can walk into
-function makeBldg(x,z,w,d,h,color,signText,signBg,signFg){
-  const wallMat=new THREE.MeshStandardMaterial({color,roughness:.85});
-  const t=0.5;
-  const seg=(sx,sz,hx,hz,hh,y)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(hx*2,hh,hz*2),wallMat);
-    m.position.set(sx,y+hh/2,sz); m.castShadow=m.receiveShadow=true; staticGroup.add(m);
-    m.updateMatrixWorld(); bulletMeshes.push(m); addBoxCollider(sx,sz,hx,hz); };
-  seg(x, z-d, w, t, h, 0);   // back
-  seg(x-w, z, t, d, h, 0);   // left
-  seg(x+w, z, t, d, h, 0);   // right
-  const roof=new THREE.Mesh(new THREE.BoxGeometry(w*2+1,0.5,d*2+1),
-    new THREE.MeshStandardMaterial({color:0x33383f})); roof.position.set(x,h+0.25,z); roof.castShadow=true; staticGroup.add(roof);
-  const fl=new THREE.Mesh(new THREE.BoxGeometry(w*2,0.2,d*2),wallMat); fl.position.set(x,0.1,z); fl.receiveShadow=true; staticGroup.add(fl);
-  const sign=makeSign(signText,signBg,signFg); sign.position.set(x,h+1.4,z+d+0.05); sign.scale.setScalar(1.15); staticGroup.add(sign);
-  makeFlag(x-w-1,0,z+d,1.1);
-  return {x,z};
-}
-// МАГАЗИН — shop full of loot
-makeBldg(LOC.shop.x,LOC.shop.z, 12,9,6, 0x2f9e5a, "МАГАЗИН", "#ffd54a", "#173d24");
-for(let i=0;i<4;i++) extraChestSpots.push([LOC.shop.x+rand(-9,9), LOC.shop.z+rand(-6,6)]);
-{ // shelves
-  const shelf=new THREE.MeshStandardMaterial({color:0x8a5a2b,roughness:.9});
-  for(let i=0;i<3;i++){ const s=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,5),shelf);
-    s.position.set(LOC.shop.x-6+i*6, 1.2, LOC.shop.z-2); s.castShadow=true; staticGroup.add(s); }
-}
-// ТЦК — official building with a fence
-makeBldg(LOC.tck.x,LOC.tck.z, 13,10,7, 0x6a6f78, "ТЦК", "#28406e", "#ffffff");
-for(let i=0;i<3;i++) extraChestSpots.push([LOC.tck.x+rand(-10,10), LOC.tck.z+rand(-7,7)]);
-{ // fence posts around ТЦК
-  const fm=new THREE.MeshStandardMaterial({color:0x4a4f58});
-  for(let a=0;a<16;a++){ const ang=a/16*Math.PI*2; const px=LOC.tck.x+Math.cos(ang)*22, pz=LOC.tck.z+Math.sin(ang)*22;
-    const post=new THREE.Mesh(new THREE.BoxGeometry(0.3,2.4,0.3),fm); post.position.set(px,1.2,pz); staticGroup.add(post); }
-}
+// ---- Crash site (where the chopper goes down and you wake up) ----
+const _dropA=wr(0,6.28), _dropR=MTN_R+34;    // at the foot of the central mountain
+const LOC={ drop:{x:Math.cos(_dropA)*_dropR, z:Math.sin(_dropA)*_dropR} };
 
 // scatter extra flags across the whole island (on land, around the mountain)
 for(let i=0;i<40;i++){
@@ -2393,30 +2334,6 @@ function makeCar(x,z,color){
   g.position.set(x,0,z);
   return {mesh:g, wheels};
 }
-// ТЦК бусік — a boxy white van you can drive
-function makeVan(x,z){
-  const g=new THREE.Group();
-  const white=new THREE.MeshStandardMaterial({color:0xe9ecf0,roughness:.5,metalness:.2});
-  const body=new THREE.Mesh(new THREE.BoxGeometry(2.6,2.2,5.4),white);
-  body.position.y=1.5; body.castShadow=true; g.add(body);
-  const nose=new THREE.Mesh(new THREE.BoxGeometry(2.6,1.3,1.0),white);
-  nose.position.set(0,0.95,3.0); nose.castShadow=true; g.add(nose);
-  const wind=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.9,0.1),
-    new THREE.MeshStandardMaterial({color:0x223047,transparent:true,opacity:.6}));
-  wind.position.set(0,1.7,3.45); g.add(wind);
-  // "ТЦК" sign on the side
-  const s1=makeSign("ТЦК","#28406e","#ffffff"); s1.scale.set(0.42,0.42,0.42);
-  s1.position.set(1.32,1.7,0); s1.rotation.y=Math.PI/2; g.add(s1);
-  const s2=makeSign("ТЦК","#28406e","#ffffff"); s2.scale.set(0.42,0.42,0.42);
-  s2.position.set(-1.32,1.7,0); s2.rotation.y=-Math.PI/2; g.add(s2);
-  const wheels=[]; const wm=new THREE.MeshStandardMaterial({color:0x14161c,roughness:.9});
-  for(const [wx,wz] of [[-1.35,1.8],[1.35,1.8],[-1.35,-1.8],[1.35,-1.8]]){
-    const w=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,0.45,12),wm);
-    w.rotation.z=Math.PI/2; w.position.set(wx,0.7,wz); w.castShadow=true; g.add(w); wheels.push(w);
-  }
-  g.position.set(x,0,z);
-  return {mesh:g, wheels};
-}
 function spawnCars(){
   const colors=[0xd23b3b,0x2f6fd2,0x2fbf5f,0xd2a02f,0x8a2fd2,0x333a48];
   const spots=[]; for(let i=0;i<9;i++){ const a=rand(0,6.28), r=rand(MTN_R+50, WORLD-80); spots.push([Math.cos(a)*r, Math.sin(a)*r]); }
@@ -2426,10 +2343,6 @@ function spawnCars(){
     dynGroup.add(c.mesh);
     cars.push({mesh:c.mesh, wheels:c.wheels, x, z, heading:rand(0,6.28), speed:0});
   }
-  // the ТЦК бусік, parked next to the ТЦК
-  const v=makeVan(LOC.busik.x, LOC.busik.z);
-  dynGroup.add(v.mesh);
-  cars.push({mesh:v.mesh, wheels:v.wheels, x:LOC.busik.x, z:LOC.busik.z, heading:0, speed:0, van:true});
 }
 function toggleVehicle(){
   if(player.skydiving) return;
