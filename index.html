@@ -621,13 +621,14 @@ function makeHouseProc(cx, cz, w, d){
 let HOUSE_MODEL=null;
 function placeHouseModel(model, cx, cz, yaw, targetW){
   const orient=new THREE.Group(); orient.add(model.clone(true)); orient.rotation.y=yaw;
-  const wrap=new THREE.Group(); wrap.add(orient); wrap.position.set(cx,0,cz);
-  staticGroup.add(wrap); wrap.updateMatrixWorld(true);
+  const wrap=new THREE.Group(); wrap.add(orient);   // keep wrap at the ORIGIN while we measure/centre
+  wrap.updateMatrixWorld(true);
   let box=new THREE.Box3().setFromObject(orient), sz=new THREE.Vector3(); box.getSize(sz);
   const s=targetW/(Math.max(sz.x,sz.z)||1); orient.scale.setScalar(s);
   wrap.updateMatrixWorld(true); box.setFromObject(orient); const c=new THREE.Vector3(); box.getCenter(c);
-  orient.position.set(-c.x, -box.min.y, -c.z);     // centre x/z, base at y=0
-  wrap.updateMatrixWorld(true);
+  orient.position.set(-c.x, -box.min.y, -c.z);     // centre x/z, base at y=0 (local space)
+  wrap.position.set(cx,0,cz);                       // NOW move the finished house to its spot
+  staticGroup.add(wrap); wrap.updateMatrixWorld(true);
   wrap.traverse(o=>{ if(o.isMesh){ o.castShadow=o.receiveShadow=true; o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
 }
 // House positions are decided from the seed NOW (so co-op maps match and the chest spot inside
