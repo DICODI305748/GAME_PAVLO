@@ -649,8 +649,10 @@ function placeHouses(){
   let done=false; const go=()=>{ if(done) return; done=true; placeHouses(); };
   if(typeof THREE.GLTFLoader==="undefined"){ go(); return; }
   new THREE.GLTFLoader().load("models/house1.glb", g=>{
-    g.scene.traverse(o=>{ if(o.isMesh){ const ms=Array.isArray(o.material)?o.material:[o.material];
-      for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.2); m.side=THREE.DoubleSide; m.needsUpdate=true; } } } });
+    g.scene.traverse(o=>{ if(o.isMesh){ o.frustumCulled=false; const ms=Array.isArray(o.material)?o.material:[o.material];
+      for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.2); m.side=THREE.DoubleSide;
+        if(m.map){ m.emissiveMap=m.map; if(m.emissive) m.emissive.setRGB(1,1,1); m.emissiveIntensity=0.35; }  // self-lit so the (dark, weathered) house is always clearly visible
+        m.needsUpdate=true; } } } });
     HOUSE_MODEL=g.scene; go();
   }, undefined, e=>{ console.warn("house model failed", e); go(); });
   setTimeout(go, 25000);
