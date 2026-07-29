@@ -630,6 +630,17 @@ function placeHouseModel(model, cx, cz, yaw, targetW){
   wrap.position.set(cx,0,cz);                       // NOW move the finished house to its spot
   staticGroup.add(wrap); wrap.updateMatrixWorld(true);
   wrap.traverse(o=>{ if(o.isMesh){ o.castShadow=o.receiveShadow=true; o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
+  // ---- solid walls with a doorway on the front (+Z local) so you enter to the chest ----
+  const fb=new THREE.Box3().setFromObject(orient), fsz=new THREE.Vector3(); fb.getSize(fsz);
+  const whx=fsz.x/2*0.94, whz=fsz.z/2*0.94, t=0.4;         // slight inset so walls sit on the house edge
+  const ddx=Math.round(Math.sin(yaw)), ddz=Math.round(Math.cos(yaw));   // the door faces this world direction
+  const gap=Math.min(whx,whz)*0.5;                          // doorway half-width
+  const wallAlongX=(zc,isDoor)=>{ if(!isDoor){ addBoxCollider(cx,zc,whx,t); }
+    else{ const seg=(whx-gap)/2; if(seg>0.3){ addBoxCollider(cx-(gap+seg),zc,seg,t); addBoxCollider(cx+(gap+seg),zc,seg,t); } } };
+  const wallAlongZ=(xc,isDoor)=>{ if(!isDoor){ addBoxCollider(xc,cz,t,whz); }
+    else{ const seg=(whz-gap)/2; if(seg>0.3){ addBoxCollider(xc,cz-(gap+seg),t,seg); addBoxCollider(xc,cz+(gap+seg),t,seg); } } };
+  wallAlongX(cz+whz, ddz===1); wallAlongX(cz-whz, ddz===-1);
+  wallAlongZ(cx+whx, ddx===1); wallAlongZ(cx-whx, ddx===-1);
 }
 // House positions are decided from the seed NOW (so co-op maps match and the chest spot inside
 // each house exists immediately); the visuals are placed once the async model loads (or a timeout).
@@ -637,8 +648,9 @@ const houses=[];
 for(let i=0;i<40;i++){                            // plenty of abandoned houses scattered across the island
   const a=wr(0,6.28), r=wr(MTN_R+50, WORLD-70);
   const cx=Math.cos(a)*r, cz=Math.sin(a)*r;
-  const w=wr(6,9), d=wr(6,9), yaw=wr(0,6.28), targetW=wr(13,17);
-  houses.push({cx,cz,w,d,yaw,targetW, chestX:cx, chestZ:cz});   // chest sits INSIDE, at the centre
+  const w=wr(6,9), d=wr(6,9), yaw=Math.floor(wr(0,4))*(Math.PI/2), targetW=wr(13,17);  // cardinal facing so wall colliders line up
+  const ddx=Math.round(Math.sin(yaw)), ddz=Math.round(Math.cos(yaw));                   // door faces this way
+  houses.push({cx,cz,w,d,yaw,targetW, chestX:cx-ddx*2, chestZ:cz-ddz*2});   // chest in the middle of the room, back from the door
 }
 function placeHouses(){
   for(const h of houses){
