@@ -630,14 +630,29 @@ function placeHouseModel(model, cx, cz, yaw, targetW){
   wrap.position.set(cx,0,cz);                       // NOW move the finished house to its spot
   staticGroup.add(wrap); wrap.updateMatrixWorld(true);
   wrap.traverse(o=>{ if(o.isMesh){ o.castShadow=o.receiveShadow=true; o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
-  // ---- collision: three solid walls; the front (door side) is left fully OPEN so you can always walk in ----
+  // ---- collision: find where the walls ACTUALLY are (raycast at wall height, under the roof
+  // overhang) so the colliders hug the real walls, not the roof/eave edge. Front side stays open. ----
+  const hmeshes=[]; wrap.traverse(o=>{ if(o.isMesh) hmeshes.push(o); });
   const fb=new THREE.Box3().setFromObject(orient), fsz=new THREE.Vector3(); fb.getSize(fsz);
-  const whx=fsz.x/2, whz=fsz.z/2, t=0.45;
-  const ddx=Math.round(Math.sin(yaw)), ddz=Math.round(Math.cos(yaw));   // the door faces this world direction (open side)
-  if(ddz!== 1) addBoxCollider(cx, cz+whz, whx, t);       // +Z wall unless the door faces +Z
-  if(ddz!==-1) addBoxCollider(cx, cz-whz, whx, t);       // -Z wall
-  if(ddx!== 1) addBoxCollider(cx+whx, cz, t, whz);       // +X wall
-  if(ddx!==-1) addBoxCollider(cx-whx, cz, t, whz);       // -X wall
+  const whx=fsz.x/2, whz=fsz.z/2, t=0.4;
+  const ddx=Math.round(Math.sin(yaw)), ddz=Math.round(Math.cos(yaw));   // door faces this way (open side)
+  const ray=new THREE.Raycaster();
+  const findWall=(sdx,sdz)=>{ const perpHalf=sdx!==0?whz:whx, coords=[];
+    for(let q=-perpHalf*0.6; q<=perpHalf*0.6+1e-6; q+=perpHalf*0.3){
+      const ox=sdx!==0? cx+sdx*(whx+3) : cx+q, oz=sdz!==0? cz+sdz*(whz+3) : cz+q;
+      ray.set(new THREE.Vector3(ox,1.3,oz), new THREE.Vector3(-sdx,0,-sdz)); ray.far=2*(sdx!==0?whx:whz)+6;
+      const h=ray.intersectObjects(hmeshes,true); if(h.length) coords.push(sdx!==0?h[0].point.x:h[0].point.z); }
+    if(!coords.length) return sdx!==0? cx+sdx*whx : cz+sdz*whz;   // fallback: bbox edge
+    coords.sort((a,b)=>a-b); return coords[Math.floor(coords.length/2)]; };   // median hit = wall face
+  const px = ddx=== 1? cx+whx : findWall(1,0);            // solid sides use the real wall; open side uses the edge
+  const nx = ddx===-1? cx-whx : findWall(-1,0);
+  const pz = ddz=== 1? cz+whz : findWall(0,1);
+  const nz = ddz===-1? cz-whz : findWall(0,-1);
+  const midX=(px+nx)/2, hxx=(px-nx)/2, midZ=(pz+nz)/2, hzz=(pz-nz)/2;
+  if(ddz!== 1) addBoxCollider(midX, pz, hxx, t);          // +Z wall (skip if door faces +Z)
+  if(ddz!==-1) addBoxCollider(midX, nz, hxx, t);          // -Z wall
+  if(ddx!== 1) addBoxCollider(px, midZ, t, hzz);          // +X wall
+  if(ddx!==-1) addBoxCollider(nx, midZ, t, hzz);          // -X wall
 }
 // House positions are decided from the seed NOW (so co-op maps match and the chest spot inside
 // each house exists immediately); the visuals are placed once the async model loads (or a timeout).
