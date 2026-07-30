@@ -138,8 +138,15 @@
   <div id="rightHud">
     <div id="wpnName">Пістолет</div>
     <div id="ammo">12<small> / 12</small></div>
-    <div id="mats">🪵 <span id="matVal">50</span>&nbsp;🪨 <span id="stoneVal">0</span>&nbsp;🔩 <span id="metalVal">0</span></div>
+    <div id="mats">🪵 <span id="matVal">50</span>&nbsp;🪨 <span id="stoneVal">0</span>&nbsp;🔩 <span id="metalVal">0</span>&nbsp;⛽ <span id="fuelVal">0</span></div>
     <div id="modeTag" class="mode-combat">⚔ Бій</div>
+  </div>
+
+  <div id="carHud" class="hidden" style="position:absolute;left:50%;bottom:96px;transform:translateX(-50%);width:260px;background:rgba(10,14,26,.72);border:1px solid #2a3550;border-radius:10px;padding:8px 12px;color:#dfe7f5;font-size:13px;text-shadow:0 1px 2px #000">
+    <div id="carName" style="font-weight:700;margin-bottom:4px">🚗 Машина</div>
+    <div style="display:flex;align-items:center;gap:6px;margin:3px 0">🔧<div style="flex:1;height:9px;background:#20263a;border-radius:5px;overflow:hidden"><div id="carHpFill" style="height:100%;width:100%;background:linear-gradient(90deg,#e0533b,#ffb14a)"></div></div></div>
+    <div style="display:flex;align-items:center;gap:6px;margin:3px 0">⛽<div style="flex:1;height:9px;background:#20263a;border-radius:5px;overflow:hidden"><div id="carFuelFill" style="height:100%;width:100%;background:linear-gradient(90deg,#2f9e5a,#7be0a0)"></div></div></div>
+    <div style="font-size:11px;color:#9fb0cc;margin-top:4px">G — заправити паливом · F — вийти</div>
   </div>
 
   <div id="invbar"></div>
@@ -1334,7 +1341,7 @@ function makePlayer(){
     vel:new THREE.Vector3(0,0,0),
     yaw:0, pitch:0, onGround:true,
     hp:100, maxHp:100, shield:0, maxShield:100,
-    mats:50, stone:0, metal:0, alive:true,   // wood 🪵 build · stone 🪨 & metal 🔩 upgrade
+    mats:50, stone:0, metal:0, fuel:0, alive:true,   // wood 🪵 build · stone 🪨 & metal 🔩 upgrade · fuel ⛽ for cars
     inv:{pickaxe:{melee:true}, axe:{melee:true}}, // start with only tools — craft guns at the bench
     vehicle:null,
     cur:"axe", lastShot:0, reloading:false, reloadEnd:0,
@@ -1930,7 +1937,8 @@ function openChest(c){
   burst(c.x,1.2,c.z,0xffd54a,20);
   dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "stone");   // every chest gives stone
   if(Math.random()<0.6) dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "metal");  // most chests give metal
-  const pool=["mat","stone","metal","metal","ammo","shield","heal"];  // no weapons — craft them at the bench
+  if(Math.random()<0.5) dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "fuel");  // ~half of chests give fuel ⛽
+  const pool=["mat","stone","metal","metal","fuel","ammo","shield","heal"];  // no weapons — craft them at the bench
   for(let i=0;i<3;i++){
     const t=pool[Math.floor(rand(0,pool.length))];
     dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), t);
@@ -1938,7 +1946,7 @@ function openChest(c){
   toast("Скриню відкрито!");
 }
 function dropLoot(x,z,type){
-  const col={mat:0xc9a76a,stone:0x9fb4c8,metal:0xcfd6dd,ammo:0xffe08a,shield:0x2f80ff,heal:0x35d07f,weapon:0xff9d5c}[type];
+  const col={mat:0xc9a76a,stone:0x9fb4c8,metal:0xcfd6dd,ammo:0xffe08a,shield:0x2f80ff,heal:0x35d07f,weapon:0xff9d5c,fuel:0xff7a1a}[type];
   const m=new THREE.Mesh(new THREE.OctahedronGeometry(0.4,0),
     new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.5}));
   m.position.set(x,1,z); m.castShadow=true; dynGroup.add(m);
@@ -1949,6 +1957,7 @@ function pickupLoot(l){
     case "mat": player.mats=Math.min(999,player.mats+40); toast("+40 🪵 дерево"); break;
     case "stone": player.stone=Math.min(999,player.stone+30); toast("+30 🪨 камінь"); break;
     case "metal": player.metal=Math.min(999,player.metal+20); toast("+20 🔩 метал"); break;
+    case "fuel": player.fuel=Math.min(999,player.fuel+40); toast("+40 ⛽ паливо"); break;
     case "ammo": { const inv=player.inv[player.cur]; if(inv&&!inv.melee) inv.reserve+=Math.round(WEAPONS[player.cur].mag*2); toast("+Патрони"); break; }
     case "shield": player.shield=Math.min(player.maxShield,player.shield+50); toast("+50 Щит"); break;
     case "heal": player.hp=Math.min(player.maxHp,player.hp+40); toast("+40 Здоров'я"); break;
@@ -2350,95 +2359,122 @@ function updateTurrets(dt){
 // ===================================================================
 //  Vehicles (drivable cars)
 // ===================================================================
-function makeCar(x,z,color){
-  const g=new THREE.Group();
-  const bodyMat=new THREE.MeshStandardMaterial({color,roughness:.4,metalness:.5});
-  const body=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.9,4.6),bodyMat);
-  body.position.y=0.9; body.castShadow=true; g.add(body);
-  const cabin=new THREE.Mesh(new THREE.BoxGeometry(2.0,0.8,2.2),
-    new THREE.MeshStandardMaterial({color:0x1c2230,roughness:.3,metalness:.3}));
-  cabin.position.set(0,1.55,-0.2); cabin.castShadow=true; g.add(cabin);
-  const glass=new THREE.Mesh(new THREE.BoxGeometry(2.02,0.6,0.1),
-    new THREE.MeshStandardMaterial({color:0x88d0ff,transparent:true,opacity:.5}));
-  glass.position.set(0,1.55,0.9); g.add(glass);
-  // Ukraine stripe
-  const stripeB=new THREE.Mesh(new THREE.BoxGeometry(2.42,0.22,0.3),new THREE.MeshStandardMaterial({color:0x0057b7}));
-  stripeB.position.set(0,1.15,2.31); g.add(stripeB);
-  const stripeY=new THREE.Mesh(new THREE.BoxGeometry(2.42,0.22,0.3),new THREE.MeshStandardMaterial({color:0xffd700}));
-  stripeY.position.set(0,0.93,2.31); g.add(stripeY);
-  const wheels=[];
-  const wm=new THREE.MeshStandardMaterial({color:0x14161c,roughness:.9});
-  for(const [wx,wz] of [[-1.25,1.5],[1.25,1.5],[-1.25,-1.5],[1.25,-1.5]]){
-    const w=new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.6,0.4,12),wm);
-    w.rotation.z=Math.PI/2; w.position.set(wx,0.6,wz); w.castShadow=true; g.add(w); wheels.push(w);
+// ---- Cars: real .glb models (rusty sedan + semi truck), with fuel ⛽ and durability 🔧 ----
+let CAR_MODELS={};
+const CARVM={
+  rusty: {file:"car_rusty", len:5.4, hp:130, maxFuel:100, colR:1.9, acc:26, brake:34, maxF:44, maxR:-15, camY:2.2, name:"Іржава тачка"},
+  truck: {file:"truck",     len:15,  hp:340, maxFuel:220, colR:3.2, acc:16, brake:26, maxF:34, maxR:-11, camY:3.6, name:"Фура"},
+};
+(function loadCars(){
+  if(typeof THREE.GLTFLoader==="undefined") return;
+  const L=new THREE.GLTFLoader();
+  for(const key of Object.keys(CARVM)){ const vm=CARVM[key];
+    L.load("models/"+vm.file+".glb", g=>{
+      g.scene.traverse(o=>{ if(o.isMesh){ o.castShadow=true; const ms=Array.isArray(o.material)?o.material:[o.material];
+        for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.45); m.needsUpdate=true; } } } });
+      const wrap=new THREE.Group(); wrap.add(g.scene); wrap.updateMatrixWorld(true);   // forward = +Z
+      let box=new THREE.Box3().setFromObject(g.scene), sz=new THREE.Vector3(); box.getSize(sz);
+      g.scene.scale.setScalar(vm.len/(sz.z||1)); wrap.updateMatrixWorld(true);
+      box.setFromObject(g.scene); const c=new THREE.Vector3(); box.getCenter(c);
+      g.scene.position.set(-c.x, -box.min.y, -c.z); CAR_MODELS[key]=wrap;
+    }, undefined, e=>console.warn("car "+key+" failed", e));
   }
-  g.position.set(x,0,z);
-  return {mesh:g, wheels};
+})();
+function makeCarProc(x,z){   // fallback if a model won't load
+  const g=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.9,4.6),new THREE.MeshStandardMaterial({color:0x8a3b2e,roughness:.6,metalness:.4}));
+  body.position.y=0.9; body.castShadow=true; g.add(body);
+  const cabin=new THREE.Mesh(new THREE.BoxGeometry(2.0,0.8,2.2),new THREE.MeshStandardMaterial({color:0x1c2230}));
+  cabin.position.set(0,1.55,-0.2); g.add(cabin);
+  g.position.set(x,0,z); return g;
+}
+function makeCar(variant,x,z){
+  const g=new THREE.Group();
+  if(CAR_MODELS[variant]) g.add(CAR_MODELS[variant].clone(true)); else g.add(makeCarProc(0,0));
+  g.position.set(x,0,z); return g;
 }
 function spawnCars(){
-  const colors=[0xd23b3b,0x2f6fd2,0x2fbf5f,0xd2a02f,0x8a2fd2,0x333a48];
+  const variants=["rusty","truck","rusty","rusty","truck","rusty","rusty","rusty","rusty"];
   const spots=[]; for(let i=0;i<9;i++){ const a=rand(0,6.28), r=rand(MTN_R+50, WORLD-80); spots.push([Math.cos(a)*r, Math.sin(a)*r]); }
-  for(let i=0;i<spots.length;i++){
-    const [x,z]=spots[i];
-    const c=makeCar(x,z,colors[i%colors.length]);
-    dynGroup.add(c.mesh);
-    cars.push({mesh:c.mesh, wheels:c.wheels, x, z, heading:rand(0,6.28), speed:0});
-  }
+  for(let i=0;i<spots.length;i++){ const [x,z]=spots[i], v=variants[i%variants.length], vm=CARVM[v];
+    const mesh=makeCar(v,x,z); dynGroup.add(mesh);
+    cars.push({mesh, x, z, heading:rand(0,6.28), speed:0, variant:v, hp:vm.hp, maxHp:vm.hp,
+      fuel:Math.round(vm.maxFuel*rand(0.15,0.55)), maxFuel:vm.maxFuel, colR:vm.colR}); }
+}
+function updateCarHud(){
+  const car=player.vehicle; if(!car) return;
+  document.getElementById("carHpFill").style.width=clamp(car.hp/car.maxHp*100,0,100)+"%";
+  document.getElementById("carFuelFill").style.width=clamp(car.fuel/car.maxFuel*100,0,100)+"%";
+}
+function refuelCar(){
+  const car=player.vehicle; if(!car) return;
+  const space=car.maxFuel-car.fuel;
+  if(space<=0.5){ toast("Бак повний"); return; }
+  if(player.fuel<=0){ toast("Немає палива ⛽ — знайди в скринях або скрафти на верстаку"); return; }
+  const amt=Math.min(space, player.fuel); car.fuel+=amt; player.fuel-=amt;
+  playBlip(440,0.1); toast("⛽ Заправлено (+"+Math.round(amt)+")"); updateHUD(); updateCarHud();
+}
+function damageCar(car,dmg){ car.hp-=dmg; if(player.vehicle===car) updateCarHud(); if(car.hp<=0) destroyCar(car); }
+function destroyCar(car){
+  for(let i=0;i<5;i++) setTimeout(()=>burst(car.x+rand(-2,2),1+rand(0,2),car.z+rand(-2,2),0xff7a2a,14), i*90);
+  if(typeof playExplosion==="function") playExplosion(1);
+  if(player.vehicle===car){ player.vehicle=null; player.pos.set(car.x+3,0,car.z+3); player.vel.set(0,0,0);
+    document.getElementById("carHud").classList.add("hidden"); updateModeTag(); damagePlayer(20,false); }
+  dynGroup.remove(car.mesh); const i=cars.indexOf(car); if(i>=0) cars.splice(i,1);
+  toast("💥 Машина знищена!");
 }
 function toggleVehicle(){
   if(player.skydiving) return;
   if(player.vehicle){
-    // exit beside the car
     const car=player.vehicle; player.vehicle=null;
     const rx=Math.cos(car.heading), rz=-Math.sin(car.heading);
-    player.pos.set(car.x+rx*2.6, 0, car.z+rz*2.6);
-    player.vel.set(0,0,0);
-    toast("Ти вийшов з машини");
-    updateModeTag();
-    return;
+    player.pos.set(car.x+rx*(car.colR+1.5), 0, car.z+rz*(car.colR+1.5)); player.vel.set(0,0,0);
+    document.getElementById("carHud").classList.add("hidden");
+    toast("Ти вийшов з машини"); updateModeTag(); return;
   }
-  // enter nearest car
-  let best=null,bd=5;
+  let best=null,bd=6.5;
   for(const car of cars){ const d=Math.hypot(car.x-player.pos.x, car.z-player.pos.z); if(d<bd){ bd=d; best=car; } }
   if(best){ player.vehicle=best; buildMode=false; updateModeTag();
-    toast("🚗 За кермом! WASD — їхати, F — вийти"); }
+    document.getElementById("carHud").classList.remove("hidden");
+    document.getElementById("carName").textContent="🚗 "+CARVM[best.variant].name;
+    updateCarHud();
+    toast(best.fuel>0? "🚗 За кермом! WASD — їхати · G — заправити · F — вийти"
+                     : "🚗 Бак порожній! Тисни G щоб заправити (⛽ "+player.fuel+")"); }
   else toast("Поруч немає машини (F біля машини)");
 }
 function updateVehicle(dt){
-  const car=player.vehicle;
-  // controls
-  const acc=22, brake=30, maxF=42, maxR=-16;
-  if(keys["KeyW"]||keys["ArrowUp"]) car.speed+=acc*dt;
-  else if(keys["KeyS"]||keys["ArrowDown"]) car.speed-=brake*dt;
-  else car.speed*=(1-1.2*dt); // coast
-  car.speed=clamp(car.speed,maxR,maxF);
-  // steering scales with speed & direction
-  const steer=1.8*dt*clamp(car.speed/12,-1,1);
+  const car=player.vehicle, vm=CARVM[car.variant];
+  const hasFuel=car.fuel>0;
+  const throttle=(keys["KeyW"]||keys["ArrowUp"])?1 : (keys["KeyS"]||keys["ArrowDown"])?-1 : 0;
+  if(throttle>0 && hasFuel) car.speed += vm.acc*dt;
+  else if(throttle<0) car.speed -= vm.brake*dt;            // braking / reverse works even without fuel
+  else car.speed *= (1-1.4*dt);
+  if(!hasFuel && car.speed>0) car.speed *= (1-1.0*dt);     // engine dead -> rolls to a stop
+  car.speed=clamp(car.speed, vm.maxR, vm.maxF);
+  if(throttle>0 && hasFuel){ car.fuel=Math.max(0, car.fuel-(0.8+Math.abs(car.speed)*0.05)*dt);
+    if(car.fuel<=0){ toast("⛽ Бак порожній — тисни G щоб заправити"); updateHUD(); } }
+  const steer=1.9*dt*clamp(car.speed/12,-1,1);
   if(keys["KeyA"]||keys["ArrowLeft"]) car.heading+=steer;
   if(keys["KeyD"]||keys["ArrowRight"]) car.heading-=steer;
   const fx=Math.sin(car.heading), fz=Math.cos(car.heading);
   let nx=car.x+fx*car.speed*dt, nz=car.z+fz*car.speed*dt;
-  // collision (treat car as circle r~1.8)
-  const R=1.8; let blocked=false;
-  const hitBox=(minx,maxx,minz,maxz)=>{ const cx=clamp(nx,minx,maxx),cz=clamp(nz,minz,maxz);
-    return (nx-cx)*(nx-cx)+(nz-cz)*(nz-cz)<R*R; };
+  const R=car.colR; let blocked=false;
+  const hitBox=(minx,maxx,minz,maxz)=>{ const qx=clamp(nx,minx,maxx),qz=clamp(nz,minz,maxz); return (nx-qx)*(nx-qx)+(nz-qz)*(nz-qz)<R*R; };
   for(const c of worldColliders){ if(hitBox(c.minx,c.maxx,c.minz,c.maxz)){blocked=true;break;} }
   if(!blocked) for(const s of structures){ if(s.col && hitBox(s.col.minx,s.col.maxx,s.col.minz,s.col.maxz)){blocked=true;break;} }
-  if(blocked){ car.speed*=-0.25; }
-  else { car.x=clamp(nx,-WORLD+3,WORLD-3); car.z=clamp(nz,-WORLD+3,WORLD-3); }
-  // run over bots
-  for(const b of bots){ if(b.alive && Math.hypot(b.x-car.x,b.z-car.z)<2.2 && Math.abs(car.speed)>10){ b.hp-=60*dt*Math.abs(car.speed)/20; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } }
-  // apply to mesh
-  car.mesh.position.set(car.x,0,car.z);
-  car.mesh.rotation.y=car.heading;
-  for(const w of car.wheels) w.rotation.x+=car.speed*dt*1.5;
-  // player rides + camera faces forward
-  player.pos.set(car.x,0,car.z);
-  player.yaw=car.heading+Math.PI;   // look in driving direction
-  camera.position.set(car.x, 2.4, car.z);
+  if(blocked){ const impact=Math.abs(car.speed);
+    if(impact>15){ burst(car.x+fx*2,1.2,car.z+fz*2,0xffaa44,6); damageCar(car,(impact-13)*1.5); }
+    car.speed*=-0.25;
+    if(!player.vehicle) return;                            // car exploded from the crash
+  } else { car.x=clamp(nx,-WORLD+3,WORLD-3); car.z=clamp(nz,-WORLD+3,WORLD-3); }
+  for(const b of bots){ if(b.alive && Math.hypot(b.x-car.x,b.z-car.z)<car.colR+0.7 && Math.abs(car.speed)>10){ b.hp-=60*dt*Math.abs(car.speed)/20; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } }
+  car.mesh.position.set(car.x,0,car.z); car.mesh.rotation.y=car.heading;
+  player.pos.set(car.x,0,car.z); player.yaw=car.heading+Math.PI;
+  camera.position.set(car.x, vm.camY, car.z);
   camera.rotation.set(player.pitch*0.5, player.yaw, 0, "YXZ");
-  const wantFov=75+clamp(Math.abs(car.speed),0,40)*0.4;  // speed FOV
+  const wantFov=75+clamp(Math.abs(car.speed),0,40)*0.4;
   camera.fov+=(wantFov-camera.fov)*Math.min(1,dt*6); camera.updateProjectionMatrix();
+  updateCarHud();
 }
 
 function startReload(){
@@ -2553,6 +2589,7 @@ addEventListener("keydown",e=>{
   else if(c==="KeyR"){ startReload(); }
   else if(c==="KeyE"){ if(nearTower()){ sendSignal(); } else { const dr=nearDoor(); if(nearBench()) openCraft(); else if(dr) toggleDoor(dr); else tryOpenChest(); } }
   else if(c==="KeyF"){ toggleVehicle(); }
+  else if(c==="KeyG"){ if(player.vehicle) refuelCar(); }
   else if(c==="KeyU"){ if(buildMode) upgradeAimed(); }
   else if(c==="KeyM"){ toggleMusic(); }
   else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
@@ -2631,6 +2668,7 @@ function closeCraft(){
   document.getElementById("craftScreen").classList.add("hidden");
   if(running) renderer.domElement.requestPointerLock();
 }
+const FUEL_CRAFT={w:0, s:0, m:20, give:60};   // 20 🔩 metal -> 60 ⛽ fuel
 function buildCraftGrid(){
   const grid=document.getElementById("craftGrid"); grid.innerHTML="";
   for(const key of Object.keys(CRAFT)){
@@ -2643,6 +2681,19 @@ function buildCraftGrid(){
     d.querySelector(".cbtn").addEventListener("click",()=>craftWeapon(key));
     grid.appendChild(d);
   }
+  // fuel ⛽ — craft cans of fuel for your car
+  const fr=FUEL_CRAFT, can=player.metal>=fr.m;
+  const fd=document.createElement("div"); fd.className="craftItem"+(can?"":" cant");
+  fd.innerHTML=`<div class="cname">⛽ Паливо (+${fr.give})</div>`+
+    `<div class="ccost">🔩${fr.m}</div><button class="cbtn">Скрафтити</button>`;
+  fd.querySelector(".cbtn").addEventListener("click",craftFuel);
+  grid.appendChild(fd);
+}
+function craftFuel(){
+  if(player.metal<FUEL_CRAFT.m){ toast("Треба "+FUEL_CRAFT.m+" 🔩 металу"); return; }
+  player.metal-=FUEL_CRAFT.m; player.fuel=Math.min(999,player.fuel+FUEL_CRAFT.give);
+  playBlip(520,0.1); toast("+"+FUEL_CRAFT.give+" ⛽ паливо");
+  buildCraftGrid(); updateHUD();
 }
 function craftWeapon(key){
   const r=CRAFT[key];
@@ -2688,6 +2739,7 @@ function updateHUD(){
   document.getElementById("matVal").textContent=player.mats;
   document.getElementById("stoneVal").textContent=player.stone;
   document.getElementById("metalVal").textContent=player.metal;
+  document.getElementById("fuelVal").textContent=player.fuel;
   const w=WEAPONS[player.cur], inv=player.inv[player.cur];
   document.getElementById("wpnName").textContent=w.name;
   document.getElementById("ammo").innerHTML= w.melee ? "🪓<small> інструмент</small>"
@@ -2988,8 +3040,10 @@ function update(dt){
     b.y=mountainHeightAt(b.x,b.z);        // zombies climb the mountain too
     b.mesh.position.set(b.x,b.y,b.z);
     b.mesh.rotation.y=-a+Math.PI/2 + Math.sin(b.wobble)*0.12;
-    // attack the player when adjacent
-    if(dp<1.9 && Math.abs(b.y-player.pos.y)<3 && player.alive && b.atkT<=0){ b.atkT=0.9; damagePlayer(b.dmg,false); }
+    // attack the player when adjacent — or bash the car if the player is driving
+    const atkRange = player.vehicle? player.vehicle.colR+1.1 : 1.9;
+    if(dp<atkRange && Math.abs(b.y-player.pos.y)<3 && player.alive && b.atkT<=0){ b.atkT=0.9;
+      if(player.vehicle) damageCar(player.vehicle, b.dmg*0.9); else damagePlayer(b.dmg,false); }
     // spike traps hurt zombies on the same level
     for(const sp of spikeTraps){ if(Math.abs(b.x-sp.x)<sp.r && Math.abs(b.z-sp.z)<sp.r && Math.abs(b.y-(sp.y||0))<2){
       b.hp-=55*dt; b.hitFlash=3; if(b.hp<=0){ killBot(b,false); break; } } }

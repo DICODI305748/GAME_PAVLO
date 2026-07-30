@@ -38,7 +38,7 @@ You start with **only a pickaxe and axe — no guns**, and weapons no longer dro
 
 ## ✈️ 3D models (.glb)
 
-Lots of the game is loaded from real **`.glb` models** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`): the aircraft (`plane.glb`), the walking **zombies** (`zombie.glb`, rigged — its walk animation plays), the **trees, rocks and iron ore** (`tree.glb`, `rock.glb`, `iron.glb`), decorative **grass clumps** (`grass.glb`) scattered as ground cover, the giant central **mountain** (`mountain.glb`), the summit **radio tower** (`radio_tower.glb`), the held **guns** (`gun_*.glb`), the abandoned **houses** (`house1.glb` — each holds a loot chest inside) and the loot **chest** (`chest.glb`). To swap any of them, drop a different `.glb` in with the same name. If a model can't be loaded the game silently falls back to the built-in code-drawn shapes (grass simply doesn't appear; the mountain/tower/houses/chest fall back to their procedural versions).
+Lots of the game is loaded from real **`.glb` models** in [`models/`](models/) via Three.js's `GLTFLoader` (vendored as `GLTFLoader.js`): the aircraft (`plane.glb`), the walking **zombies** (`zombie.glb`, rigged — its walk animation plays), the **trees, rocks and iron ore** (`tree.glb`, `rock.glb`, `iron.glb`), decorative **grass clumps** (`grass.glb`) scattered as ground cover, the giant central **mountain** (`mountain.glb`), the summit **radio tower** (`radio_tower.glb`), the held **guns** (`gun_*.glb`), the abandoned **houses** (`house1.glb` — each holds a loot chest inside), the loot **chest** (`chest.glb`) and the drivable **vehicles** (`car_rusty.glb` rusty sedan, `truck.glb` semi). To swap any of them, drop a different `.glb` in with the same name. If a model can't be loaded the game silently falls back to the built-in code-drawn shapes (grass simply doesn't appear; the mountain/tower/houses/chest fall back to their procedural versions).
 
 Because the tree/rock/iron/grass and mountain/tower models load asynchronously, the vegetation and the summit are placed once they're ready. The rock and grass models are relatively heavy, so their counts are capped for performance (grass clumps are decorative — no collision, not harvestable). The mountain model is fitted so its **peak sits exactly on the climbable summit**, and once it's placed the game **samples a height-map straight off the model's mesh** (firing rays down over a grid) so the walkable collision follows the visible mountain **exactly** — every ridge and slope you see is the surface you actually walk on (it falls back to a smooth cone only if the model fails to load). The radio tower stands on that peak — climb to it and press **E** to send the distress signal. The ground itself is painted with a **grassy texture** so the whole island reads as a green meadow.
 
@@ -68,7 +68,7 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 | **B** | Toggle **Combat / Build** mode |
 | **1–7** | Combat: 1 pistol, 2 rifle, 3 shotgun, 4 sniper, 5 pickaxe, 6 axe, 7 bazooka · Build: 1 wall, 2 door, 3 window, 4 floor, 5 ladder, 6 turret |
 | **U** | In build mode: upgrade the wooden piece you're aiming at to stone (costs 🪨) |
-| **F** | Enter / exit a **car** |
+| **F** | Enter / exit a **car** · **G** refuel the car with ⛽ fuel |
 | **Mouse wheel** | Cycle weapons |
 | **R** | Reload |
 | **E** | Open a chest · harvest trees/rocks with pickaxe/axe for materials |
@@ -76,7 +76,7 @@ Click the canvas to lock the mouse. Press **Esc** to release it.
 
 ## 🚗 Vehicles, turrets & harvesting tools
 
-- **Drivable cars** — walk up to any vehicle and press **F** to get in. Drive with WASD (accelerate, reverse, steer), and run over enemies at speed. Press **F** again to get out.
+- **Drivable cars** (`.glb` models — a rusty sedan and a semi truck) — walk up to any vehicle and press **F** to get in. Drive with WASD (accelerate, reverse, steer), and run over enemies at speed. Press **F** again to get out. Each car has **fuel ⛽ and durability 🔧**: driving burns fuel (when the tank is empty the engine dies and it rolls to a stop), and crashes at speed and zombie hits damage the car until it's wrecked (it explodes). Press **G** to refuel from the fuel you're carrying. Get **fuel from loot chests** or **craft it at the workbench** (🔩 metal → ⛽). A truck is tougher and has a bigger tank; the sedan is nippier.
 - **Auto-turret** — in Build mode, select slot **4** to place a turret for **30 materials**. It automatically targets and fires at nearby enemies with line-of-sight, and has its own health.
 - **Pickaxe & axe** (slots **5** and **6**) — melee tools that harvest materials. Hit **rocks** with the pickaxe and **trees** with the axe (right tool = bonus materials), or use them as close-range weapons.
 
