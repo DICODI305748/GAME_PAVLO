@@ -138,7 +138,7 @@
   <div id="rightHud">
     <div id="wpnName">Пістолет</div>
     <div id="ammo">12<small> / 12</small></div>
-    <div id="mats">🪵 <span id="matVal">50</span>&nbsp;🪨 <span id="stoneVal">0</span>&nbsp;🔩 <span id="metalVal">0</span>&nbsp;⛽ <span id="fuelVal">0</span></div>
+    <div id="mats">🪵 <span id="matVal">50</span>&nbsp;🪨 <span id="stoneVal">0</span>&nbsp;🔩 <span id="metalVal">0</span></div>
     <div id="modeTag" class="mode-combat">⚔ Бій</div>
   </div>
 
@@ -146,7 +146,7 @@
     <div id="carName" style="font-weight:700;margin-bottom:4px">🚗 Машина</div>
     <div style="display:flex;align-items:center;gap:6px;margin:3px 0">🔧<div style="flex:1;height:9px;background:#20263a;border-radius:5px;overflow:hidden"><div id="carHpFill" style="height:100%;width:100%;background:linear-gradient(90deg,#e0533b,#ffb14a)"></div></div></div>
     <div style="display:flex;align-items:center;gap:6px;margin:3px 0">⛽<div style="flex:1;height:9px;background:#20263a;border-radius:5px;overflow:hidden"><div id="carFuelFill" style="height:100%;width:100%;background:linear-gradient(90deg,#2f9e5a,#7be0a0)"></div></div></div>
-    <div style="font-size:11px;color:#9fb0cc;margin-top:4px">G — заправити паливом · F — вийти</div>
+    <div id="carHint" style="font-size:11px;color:#9fb0cc;margin-top:4px">G — заправити · F — вийти</div>
   </div>
 
   <div id="invbar"></div>
@@ -2362,8 +2362,8 @@ function updateTurrets(dt){
 // ---- Cars: real .glb models (rusty sedan + semi truck), with fuel ⛽ and durability 🔧 ----
 let CAR_MODELS={};
 const CARVM={
-  rusty: {file:"car_rusty", len:5.4, hp:130, maxFuel:100, colR:1.9, acc:26, brake:34, maxF:44, maxR:-15, camY:2.2, name:"Іржава тачка"},
-  truck: {file:"truck",     len:15,  hp:340, maxFuel:220, colR:3.2, acc:16, brake:26, maxF:34, maxR:-11, camY:3.6, name:"Фура"},
+  rusty: {file:"car_rusty", len:6.6, hp:130, maxFuel:100, colR:2.1, acc:26, brake:34, maxF:44, maxR:-15, chaseDist:8.5, chaseY:3.8, name:"Іржава тачка"},
+  truck: {file:"truck",     len:16,  hp:340, maxFuel:220, colR:3.4, acc:16, brake:26, maxF:34, maxR:-11, chaseDist:18,  chaseY:7.5, name:"Фура"},
 };
 (function loadCars(){
   if(typeof THREE.GLTFLoader==="undefined") return;
@@ -2405,6 +2405,7 @@ function updateCarHud(){
   const car=player.vehicle; if(!car) return;
   document.getElementById("carHpFill").style.width=clamp(car.hp/car.maxHp*100,0,100)+"%";
   document.getElementById("carFuelFill").style.width=clamp(car.fuel/car.maxFuel*100,0,100)+"%";
+  document.getElementById("carHint").textContent="G — заправити (⛽ "+player.fuel+" в запасі) · F — вийти";
 }
 function refuelCar(){
   const car=player.vehicle; if(!car) return;
@@ -2419,7 +2420,7 @@ function destroyCar(car){
   for(let i=0;i<5;i++) setTimeout(()=>burst(car.x+rand(-2,2),1+rand(0,2),car.z+rand(-2,2),0xff7a2a,14), i*90);
   if(typeof playExplosion==="function") playExplosion(1);
   if(player.vehicle===car){ player.vehicle=null; player.pos.set(car.x+3,0,car.z+3); player.vel.set(0,0,0);
-    document.getElementById("carHud").classList.add("hidden"); updateModeTag(); damagePlayer(20,false); }
+    document.getElementById("carHud").classList.add("hidden"); if(gunMesh) gunMesh.visible=true; updateModeTag(); damagePlayer(20,false); }
   dynGroup.remove(car.mesh); const i=cars.indexOf(car); if(i>=0) cars.splice(i,1);
   toast("💥 Машина знищена!");
 }
@@ -2430,11 +2431,13 @@ function toggleVehicle(){
     const rx=Math.cos(car.heading), rz=-Math.sin(car.heading);
     player.pos.set(car.x+rx*(car.colR+1.5), 0, car.z+rz*(car.colR+1.5)); player.vel.set(0,0,0);
     document.getElementById("carHud").classList.add("hidden");
+    if(gunMesh) gunMesh.visible=true;
     toast("Ти вийшов з машини"); updateModeTag(); return;
   }
   let best=null,bd=6.5;
   for(const car of cars){ const d=Math.hypot(car.x-player.pos.x, car.z-player.pos.z); if(d<bd){ bd=d; best=car; } }
   if(best){ player.vehicle=best; buildMode=false; updateModeTag();
+    if(gunMesh) gunMesh.visible=false;
     document.getElementById("carHud").classList.remove("hidden");
     document.getElementById("carName").textContent="🚗 "+CARVM[best.variant].name;
     updateCarHud();
@@ -2444,6 +2447,7 @@ function toggleVehicle(){
 }
 function updateVehicle(dt){
   const car=player.vehicle, vm=CARVM[car.variant];
+  if(gunMesh) gunMesh.visible=false;                        // no floating gun in the chase view
   const hasFuel=car.fuel>0;
   const throttle=(keys["KeyW"]||keys["ArrowUp"])?1 : (keys["KeyS"]||keys["ArrowDown"])?-1 : 0;
   if(throttle>0 && hasFuel) car.speed += vm.acc*dt;
@@ -2470,8 +2474,9 @@ function updateVehicle(dt){
   for(const b of bots){ if(b.alive && Math.hypot(b.x-car.x,b.z-car.z)<car.colR+0.7 && Math.abs(car.speed)>10){ b.hp-=60*dt*Math.abs(car.speed)/20; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } }
   car.mesh.position.set(car.x,0,car.z); car.mesh.rotation.y=car.heading;
   player.pos.set(car.x,0,car.z); player.yaw=car.heading+Math.PI;
-  camera.position.set(car.x, vm.camY, car.z);
-  camera.rotation.set(player.pitch*0.5, player.yaw, 0, "YXZ");
+  // chase camera: behind & above the car, looking ahead (never inside the truck)
+  camera.position.set(car.x - fx*vm.chaseDist, vm.chaseY, car.z - fz*vm.chaseDist);
+  camera.lookAt(car.x + fx*3, 1.4, car.z + fz*3);
   const wantFov=75+clamp(Math.abs(car.speed),0,40)*0.4;
   camera.fov+=(wantFov-camera.fov)*Math.min(1,dt*6); camera.updateProjectionMatrix();
   updateCarHud();
@@ -2739,7 +2744,6 @@ function updateHUD(){
   document.getElementById("matVal").textContent=player.mats;
   document.getElementById("stoneVal").textContent=player.stone;
   document.getElementById("metalVal").textContent=player.metal;
-  document.getElementById("fuelVal").textContent=player.fuel;
   const w=WEAPONS[player.cur], inv=player.inv[player.cur];
   document.getElementById("wpnName").textContent=w.name;
   document.getElementById("ammo").innerHTML= w.melee ? "🪓<small> інструмент</small>"
@@ -3262,6 +3266,7 @@ function triggerRescue(){
 // ===================================================================
 function startGame(){
   document.getElementById("startScreen").classList.add("hidden");
+  document.getElementById("carHud").classList.add("hidden");
   document.getElementById("endScreen").classList.add("hidden");
   document.getElementById("killfeed").innerHTML="";
   clearGroup();
