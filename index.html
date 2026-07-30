@@ -747,6 +747,7 @@ function placeCrashPlanes(){
     box.setFromObject(m); const c=new THREE.Vector3(); box.getCenter(c);
     m.position.set(-c.x, -box.min.y, -c.z); CRASHPLANE_MODEL=wrap;
     go();
+    if(typeof swapWreckToPlane==="function") swapWreckToPlane();   // if the intro is already running, upgrade the placeholder wreck
   }, undefined, e=>{ console.warn("crashed_plane.glb failed", e); });
 })();
 // free ground loot piled around every wreck (called at game start)
@@ -3170,7 +3171,7 @@ function loop(ts){
 //  you wake up at the wreck and must reach the summit tower to signal for help.
 //  (Runs client-side, so it works the same in offline and online co-op.)
 // ===================================================================
-let cutscene=null, crashLoot=null, crashFires=null, signalSent=false, _objNear=null, cockpitMesh=null;
+let cutscene=null, crashLoot=null, crashFires=null, signalSent=false, _objNear=null, cockpitMesh=null, crashWreck=null;
 const fadeEl=document.getElementById("fade");
 const objEl=document.getElementById("objective");
 // A helicopter cockpit interior (walls + windshield frame) attached to the camera,
@@ -3200,16 +3201,49 @@ function makeDeadBody(x,z,ang){
   g.traverse(o=>{ if(o.isMesh && o.material && o.material.color){ o.material=o.material.clone(); o.material.color.multiplyScalar(0.55); } });
   g.rotation.set(Math.PI/2, ang, 0); g.position.set(x,0.5,z); dynGroup.add(g);
 }
-function makeWreck(x,z){
-  const g=makeHeli();
-  g.traverse(o=>{ if(o.isMesh && o.material){ o.material=o.material.clone(); if(o.material.color) o.material.color.multiplyScalar(0.5); o.material.transparent=false; o.material.opacity=1; } });  // scorched, but still recognisable
-  g.position.set(x,1.5,z); g.rotation.set(0.35,rand(0,6.28),0.6); g.scale.setScalar(1.15); dynGroup.add(g);
+// The crashed aircraft you wake up next to — now the .glb crashed plane (falls
+// back to the code chopper if the model hasn't loaded yet, then swaps in).
+const WRECK_AHEAD=25;                                   // wreck sits this far ahead (clear of the ~22u plane footprint) so you wake up looking at the whole wreck
+function wreckPos(x,z,yaw){ return {x:x+Math.cos(yaw)*WRECK_AHEAD, z:z+Math.sin(yaw)*WRECK_AHEAD}; }
+function placePlaneWreck(x,z,yaw){
+  const g=CRASHPLANE_MODEL.clone(true);
+  const scorch=m=>{ const c=m.clone(); if(c.color) c.color.multiplyScalar(0.85);   // lightly scorched, still clearly a plane
+    if(c.emissive){ c.emissive.setRGB(1,1,1); c.emissiveMap=c.map||c.emissiveMap||null; c.emissiveIntensity=c.map?0.55:0.3; } return c; };
+  g.traverse(o=>{ if(o.isMesh && o.material){ o.material=Array.isArray(o.material)? o.material.map(scorch) : scorch(o.material); } });   // keep single vs array shape (wrapping a lone material in an array stops the mesh rendering)
+  const p=wreckPos(x,z,yaw);
+  g.position.set(p.x, -0.4, p.z); g.rotation.set(0.14, yaw + 0.7, 0.12); g.scale.multiplyScalar(0.72);  // ~22-unit downed plane, nose skewed off to the side like it skidded in
+  dynGroup.add(g); return g;
+}
+function makeWreckFires(x,z,yaw,big){
+  const p=big?wreckPos(x,z,yaw):{x,z};
+  const spread=big?7:2.2, n=big?11:6;
   const fireMat=new THREE.MeshBasicMaterial({color:0xff7a1a}); fireMat.fog=false;
   const fires=[];
-  for(let i=0;i<6;i++){ const f=new THREE.Mesh(new THREE.ConeGeometry(rand(0.6,1.3),rand(2,3.8),6),fireMat);
-    f.position.set(x+rand(-2.2,2.2),1.4+rand(0,1.2),z+rand(-2.2,2.2)); dynGroup.add(f); fires.push(f); }
-  const light=new THREE.PointLight(0xff7028,2.2,45); light.position.set(x,4,z); dynGroup.add(light);
+  for(let i=0;i<n;i++){ const f=new THREE.Mesh(new THREE.ConeGeometry(rand(0.6,1.4),rand(2,4),6),fireMat);
+    f.position.set(p.x+rand(-spread,spread),1.4+rand(0,1.4),p.z+rand(-spread,spread)); dynGroup.add(f); fires.push(f); }
+  const light=new THREE.PointLight(0xff7028,2.4,55); light.position.set(p.x,4,p.z); dynGroup.add(light);
   crashFires={fires,light};
+}
+function makeWreck(x,z){
+  const yaw=player.yaw;
+  let g, isPlane=false;
+  if(CRASHPLANE_MODEL){ g=placePlaneWreck(x,z,yaw); isPlane=true; }
+  else {                                                // model not ready yet: code chopper, swapped out on load
+    g=makeHeli();
+    g.traverse(o=>{ if(o.isMesh && o.material){ o.material=o.material.clone(); if(o.material.color) o.material.color.multiplyScalar(0.5); o.material.transparent=false; o.material.opacity=1; } });
+    g.position.set(x,1.5,z); g.rotation.set(0.35,rand(0,6.28),0.6); g.scale.setScalar(1.15); dynGroup.add(g);
+  }
+  crashWreck={mesh:g,x,z,yaw,fallback:!isPlane};
+  makeWreckFires(x,z,yaw,isPlane);
+}
+// if the plane model loads mid-cutscene, replace the placeholder chopper wreck
+function swapWreckToPlane(){
+  if(!crashWreck || !crashWreck.fallback || !CRASHPLANE_MODEL) return;
+  if(crashWreck.mesh) dynGroup.remove(crashWreck.mesh);
+  if(crashFires){ crashFires.fires.forEach(f=>dynGroup.remove(f)); dynGroup.remove(crashFires.light); crashFires=null; }
+  crashWreck.mesh=placePlaneWreck(crashWreck.x, crashWreck.z, crashWreck.yaw);
+  crashWreck.fallback=false;
+  makeWreckFires(crashWreck.x, crashWreck.z, crashWreck.yaw, true);   // re-seat the fire around the bigger wreck
 }
 function animCrashFire(dt){
   if(!crashFires) return;
