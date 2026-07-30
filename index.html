@@ -630,36 +630,14 @@ function placeHouseModel(model, cx, cz, yaw, targetW){
   wrap.position.set(cx,0,cz);                       // NOW move the finished house to its spot
   staticGroup.add(wrap); wrap.updateMatrixWorld(true);
   wrap.traverse(o=>{ if(o.isMesh){ o.castShadow=o.receiveShadow=true; o.updateWorldMatrix(true,false); bulletMeshes.push(o); } });
-  // ---- collision that follows the house: solid walls, with the doorway matched to the REAL door ----
-  const hmeshes=[]; wrap.traverse(o=>{ if(o.isMesh) hmeshes.push(o); });
+  // ---- collision: three solid walls; the front (door side) is left fully OPEN so you can always walk in ----
   const fb=new THREE.Box3().setFromObject(orient), fsz=new THREE.Vector3(); fb.getSize(fsz);
   const whx=fsz.x/2, whz=fsz.z/2, t=0.45;
-  const ddx=Math.round(Math.sin(yaw)), ddz=Math.round(Math.cos(yaw));   // the door faces this world direction
-  // three solid walls (every side except the door side)
-  if(ddz!== 1) addBoxCollider(cx, cz+whz, whx, t);
-  if(ddz!==-1) addBoxCollider(cx, cz-whz, whx, t);
-  if(ddx!== 1) addBoxCollider(cx+whx, cz, t, whz);
-  if(ddx!==-1) addBoxCollider(cx-whx, cz, t, whz);
-  // door side: raycast across the width and only put wall where the model actually has a wall
-  // (so the gap lands exactly on the real doorway, and window/open bits stay solid).
-  const ray=new THREE.Raycaster(); const perp=(ddz!==0);   // door faces ±Z -> width runs along X
-  const half=perp?whx:whz, frontZ=cz+ddz*whz, frontX=cx+ddx*whx;
-  const dir=new THREE.Vector3(-ddx,0,-ddz), depth=(perp?2*whz:2*whx)+4;
-  const step=Math.max(0.8,(2*half)/16); let solidCells=0, openCells=0, cells=[];
-  for(let p=-half+step*0.5; p<half; p+=step){
-    const ox=perp? cx+p : frontX+ddx*2.5, oz=perp? frontZ+ddz*2.5 : cz+p;
-    ray.set(new THREE.Vector3(ox,1.3,oz), dir); ray.far=depth;
-    const hit=ray.intersectObjects(hmeshes,true);
-    const solid = hit.length && hit[0].distance < 4.0;    // wall right at the front => solid here
-    if(solid){ solidCells++; cells.push(p); } else openCells++;
-  }
-  if(solidCells && openCells){                              // detected a real doorway: build the segmented front wall
-    for(const p of cells){ if(perp) addBoxCollider(cx+p, frontZ, step*0.6, t); else addBoxCollider(frontX, cz+p, t, step*0.6); }
-  } else {                                                  // detection degenerate -> a plain centred doorway
-    const gap=half*0.42, seg=(half-gap)/2;
-    if(perp){ addBoxCollider(cx-(gap+seg),frontZ,seg,t); addBoxCollider(cx+(gap+seg),frontZ,seg,t); }
-    else    { addBoxCollider(frontX,cz-(gap+seg),t,seg); addBoxCollider(frontX,cz+(gap+seg),t,seg); }
-  }
+  const ddx=Math.round(Math.sin(yaw)), ddz=Math.round(Math.cos(yaw));   // the door faces this world direction (open side)
+  if(ddz!== 1) addBoxCollider(cx, cz+whz, whx, t);       // +Z wall unless the door faces +Z
+  if(ddz!==-1) addBoxCollider(cx, cz-whz, whx, t);       // -Z wall
+  if(ddx!== 1) addBoxCollider(cx+whx, cz, t, whz);       // +X wall
+  if(ddx!==-1) addBoxCollider(cx-whx, cz, t, whz);       // -X wall
 }
 // House positions are decided from the seed NOW (so co-op maps match and the chest spot inside
 // each house exists immediately); the visuals are placed once the async model loads (or a timeout).
