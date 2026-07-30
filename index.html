@@ -60,6 +60,7 @@
   .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
     background:rgba(4,7,18,.86);backdrop-filter:blur(6px);z-index:20;padding:24px;pointer-events:auto}
   .overlay.hidden{display:none}
+  #carHud.hidden{display:none}   /* the car panel must actually hide when you're not driving */
   /* make the menu scrollable so nothing is cut off on short screens */
   #startScreen{justify-content:flex-start;overflow-y:auto;padding:34px 24px 120px;-webkit-overflow-scrolling:touch}
   /* up/down scroll buttons (menu) */
@@ -2362,7 +2363,7 @@ function updateTurrets(dt){
 // ---- Cars: real .glb models (rusty sedan + semi truck), with fuel ⛽ and durability 🔧 ----
 let CAR_MODELS={};
 const CARVM={
-  rusty: {file:"car_rusty", len:6.6, hp:130, maxFuel:100, colR:2.1, acc:26, brake:34, maxF:44, maxR:-15, chaseDist:8.5, chaseY:3.8, name:"Іржава тачка"},
+  rusty: {file:"car_rusty", len:8.0, hp:130, maxFuel:100, colR:2.4, acc:26, brake:34, maxF:44, maxR:-15, chaseDist:9.5, chaseY:4.2, name:"Іржава тачка"},
   truck: {file:"truck",     len:16,  hp:340, maxFuel:220, colR:3.4, acc:16, brake:26, maxF:34, maxR:-11, chaseDist:18,  chaseY:7.5, name:"Фура"},
 };
 (function loadCars(){
