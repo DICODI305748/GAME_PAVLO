@@ -644,15 +644,24 @@ function placeHouseModel(model, cx, cz, yaw, targetW){
       const h=ray.intersectObjects(hmeshes,true); if(h.length) coords.push(sdx!==0?h[0].point.x:h[0].point.z); }
     if(!coords.length) return sdx!==0? cx+sdx*whx : cz+sdz*whz;   // fallback: bbox edge
     coords.sort((a,b)=>a-b); return coords[Math.floor(coords.length/2)]; };   // median hit = wall face
-  const px = ddx=== 1? cx+whx : findWall(1,0);            // solid sides use the real wall; open side uses the edge
-  const nx = ddx===-1? cx-whx : findWall(-1,0);
-  const pz = ddz=== 1? cz+whz : findWall(0,1);
-  const nz = ddz===-1? cz-whz : findWall(0,-1);
+  const px = findWall(1,0), nx = findWall(-1,0), pz = findWall(0,1), nz = findWall(0,-1);
   const midX=(px+nx)/2, hxx=(px-nx)/2, midZ=(pz+nz)/2, hzz=(pz-nz)/2;
-  if(ddz!== 1) addBoxCollider(midX, pz, hxx, t);          // +Z wall (skip if door faces +Z)
-  if(ddz!==-1) addBoxCollider(midX, nz, hxx, t);          // -Z wall
-  if(ddx!== 1) addBoxCollider(px, midZ, t, hzz);          // +X wall
-  if(ddx!==-1) addBoxCollider(nx, midZ, t, hzz);          // -X wall
+  // the three NON-door sides are full solid walls
+  if(ddz!== 1) addBoxCollider(midX, pz, hxx, t);
+  if(ddz!==-1) addBoxCollider(midX, nz, hxx, t);
+  if(ddx!== 1) addBoxCollider(px, midZ, t, hzz);
+  if(ddx!==-1) addBoxCollider(nx, midZ, t, hzz);
+  // the DOOR side is a solid wall too, with ONE clear central doorway you walk through
+  {
+    const perp=(ddz!==0);                                 // door faces ±Z -> the wall runs along X
+    const half = perp? hxx : hzz;
+    const frontZ = ddz===1? pz : nz, frontX = ddx===1? px : nx;   // the door-side wall coordinate
+    const gapHalf = Math.max(1.9, half*0.3), segHalf=(half-gapHalf)/2;   // ~3.8+ wide doorway
+    if(segHalf>0.3){
+      if(perp){ addBoxCollider(midX-(gapHalf+segHalf), frontZ, segHalf, t); addBoxCollider(midX+(gapHalf+segHalf), frontZ, segHalf, t); }
+      else    { addBoxCollider(frontX, midZ-(gapHalf+segHalf), t, segHalf); addBoxCollider(frontX, midZ+(gapHalf+segHalf), t, segHalf); }
+    }
+  }
 }
 // House positions are decided from the seed NOW (so co-op maps match and the chest spot inside
 // each house exists immediately); the visuals are placed once the async model loads (or a timeout).
