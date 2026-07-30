@@ -651,16 +651,19 @@ function placeHouseModel(model, cx, cz, yaw, targetW){
   if(ddz!==-1) addBoxCollider(midX, nz, hxx, t);
   if(ddx!== 1) addBoxCollider(px, midZ, t, hzz);
   if(ddx!==-1) addBoxCollider(nx, midZ, t, hzz);
-  // the DOOR side is a solid wall too, with ONE clear central doorway you walk through
+  // the DOOR side is a solid wall too, with the doorway placed where the model's door actually is
+  // (the door is a texture on the +X-local side of the front, ~0.58 of the half-width off centre).
   {
     const perp=(ddz!==0);                                 // door faces ±Z -> the wall runs along X
     const half = perp? hxx : hzz;
     const frontZ = ddz===1? pz : nz, frontX = ddx===1? px : nx;   // the door-side wall coordinate
-    const gapHalf = Math.max(1.9, half*0.3), segHalf=(half-gapHalf)/2;   // ~3.8+ wide doorway
-    if(segHalf>0.3){
-      if(perp){ addBoxCollider(midX-(gapHalf+segHalf), frontZ, segHalf, t); addBoxCollider(midX+(gapHalf+segHalf), frontZ, segHalf, t); }
-      else    { addBoxCollider(frontX, midZ-(gapHalf+segHalf), t, segHalf); addBoxCollider(frontX, midZ+(gapHalf+segHalf), t, segHalf); }
-    }
+    const gapHalf = Math.max(1.9, half*0.26);
+    const DOOR_OFF = 0.58;                                // door offset along the wall (fraction of half-width)
+    let gc = perp ? (DOOR_OFF*half*Math.cos(yaw)) : (-DOOR_OFF*half*Math.sin(yaw));   // local +X rotated onto the wall axis
+    gc = Math.max(-half+gapHalf, Math.min(half-gapHalf, gc));     // keep the gap inside the wall
+    const addSeg=(a,bb)=>{ const c2=(a+bb)/2, hl=(bb-a)/2; if(hl>0.3){
+      if(perp) addBoxCollider(midX+c2, frontZ, hl, t); else addBoxCollider(frontX, midZ+c2, t, hl); } };
+    addSeg(-half, gc-gapHalf); addSeg(gc+gapHalf, half);          // wall on both sides of the doorway
   }
 }
 // House positions are decided from the seed NOW (so co-op maps match and the chest spot inside
