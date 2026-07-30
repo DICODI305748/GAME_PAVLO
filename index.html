@@ -738,7 +738,8 @@ function placeCrashPlanes(){
     m.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true;
       const ms=Array.isArray(o.material)?o.material:[o.material];
       for(const mt of ms){ if(mt){ if("metalness" in mt) mt.metalness=Math.min(mt.metalness||0,0.3);
-        if(mt.map){ mt.emissiveMap=mt.map; if(mt.emissive) mt.emissive.setRGB(1,1,1); mt.emissiveIntensity=0.3; }  // self-lit so the wreck reads at night
+        if("roughness" in mt) mt.roughness=Math.max(mt.roughness||0,0.7);
+        if(mt.emissive){ mt.emissive.setRGB(1,1,1); mt.emissiveMap=mt.map||null; mt.emissiveIntensity=mt.map?0.5:0.25; }  // self-lit so the (dark) wreck stays visible day & night
         mt.needsUpdate=true; } } } });
     const wrap=new THREE.Group(); wrap.add(m); wrap.updateMatrixWorld(true);
     let box=new THREE.Box3().setFromObject(m), sz=new THREE.Vector3(); box.getSize(sz);
