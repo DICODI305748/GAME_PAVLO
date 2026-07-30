@@ -2378,6 +2378,9 @@ const CARVM={
       g.scene.scale.setScalar(vm.len/(sz.z||1)); wrap.updateMatrixWorld(true);
       box.setFromObject(g.scene); const c=new THREE.Vector3(); box.getCenter(c);
       g.scene.position.set(-c.x, -box.min.y, -c.z); CAR_MODELS[key]=wrap;
+      // if cars of this variant already spawned as fallback boxes (model loaded late), swap in the real model
+      for(const car of cars){ if(car.variant===key){ dynGroup.remove(car.mesh);
+        car.mesh=makeCar(key,car.x,car.z); car.mesh.rotation.y=car.heading; dynGroup.add(car.mesh); } }
     }, undefined, e=>console.warn("car "+key+" failed", e));
   }
 })();
@@ -2395,7 +2398,7 @@ function makeCar(variant,x,z){
   g.position.set(x,0,z); return g;
 }
 function spawnCars(){
-  const variants=["rusty","truck","rusty","rusty","truck","rusty","rusty","rusty","rusty"];
+  const variants=["truck","rusty","truck","rusty","rusty","truck","rusty","truck","rusty"];   // ~4 trucks so they're easy to find
   const spots=[]; for(let i=0;i<9;i++){ const a=rand(0,6.28), r=rand(MTN_R+50, WORLD-80); spots.push([Math.cos(a)*r, Math.sin(a)*r]); }
   for(let i=0;i<spots.length;i++){ const [x,z]=spots[i], v=variants[i%variants.length], vm=CARVM[v];
     const mesh=makeCar(v,x,z); dynGroup.add(mesh);
