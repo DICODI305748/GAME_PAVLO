@@ -2363,8 +2363,8 @@ function updateTurrets(dt){
 // ---- Cars: real .glb models (rusty sedan + semi truck), with fuel ⛽ and durability 🔧 ----
 let CAR_MODELS={};
 const CARVM={
-  rusty: {file:"car_rusty", len:5.0, hp:130, maxFuel:100, colR:1.7, acc:26, brake:34, maxF:44, maxR:-15, chaseDist:7.5, chaseY:3.4, name:"Іржава тачка"},
-  truck: {file:"truck",     len:16,  hp:340, maxFuel:220, colR:3.4, acc:16, brake:26, maxF:34, maxR:-11, chaseDist:18,  chaseY:7.5, name:"Фура"},
+  rusty: {file:"car_rusty", len:6.2, hMul:1.35, hp:130, maxFuel:100, colR:1.9, acc:26, brake:34, maxF:44, maxR:-15, chaseDist:8, chaseY:3.7, name:"Іржава тачка"},
+  truck: {file:"truck",     len:16,  hMul:1.0,  hp:340, maxFuel:220, colR:3.4, acc:16, brake:26, maxF:34, maxR:-11, chaseDist:18, chaseY:7.5, name:"Фура"},
 };
 (function loadCars(){
   if(typeof THREE.GLTFLoader==="undefined") return;
@@ -2375,7 +2375,7 @@ const CARVM={
         for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.45); m.needsUpdate=true; } } } });
       const wrap=new THREE.Group(); wrap.add(g.scene); wrap.updateMatrixWorld(true);   // forward = +Z
       let box=new THREE.Box3().setFromObject(g.scene), sz=new THREE.Vector3(); box.getSize(sz);
-      g.scene.scale.setScalar(vm.len/(sz.z||1)); wrap.updateMatrixWorld(true);
+      const sB=vm.len/(sz.z||1); g.scene.scale.set(sB, sB*(vm.hMul||1), sB); wrap.updateMatrixWorld(true);  // hMul lifts the (flat) car so its roof reaches player height
       box.setFromObject(g.scene); const c=new THREE.Vector3(); box.getCenter(c);
       g.scene.position.set(-c.x, -box.min.y, -c.z); CAR_MODELS[key]=wrap;
       // if cars of this variant already spawned as fallback boxes (model loaded late), swap in the real model
