@@ -708,6 +708,55 @@ function placeHouses(){
 // ---- Ukraine flags (waving, everywhere) ----
 const flagAnims=[];
 const extraChestSpots=[];
+
+// ---- Crashed planes: big wreck landmarks that are LOOT HOTSPOTS ----
+const CRASH_SITES=[];
+for(let i=0;i<3;i++){                                    // three crash sites scattered on the island
+  const a=wr(0,6.28), r=wr(MTN_R+90, WORLD-140);
+  CRASH_SITES.push({x:Math.cos(a)*r, z:Math.sin(a)*r, yaw:Math.floor(wr(0,4))*(Math.PI/2)});
+}
+for(const s of CRASH_SITES){                             // 3 real chests circle each wreck
+  for(let k=0;k<3;k++){ const a=wr(0,6.28), rr=wr(6,11); extraChestSpots.push([s.x+Math.cos(a)*rr, s.z+Math.sin(a)*rr]); }
+}
+let CRASHPLANE_MODEL=null;
+function placeCrashPlanes(){
+  if(!CRASHPLANE_MODEL) return;
+  for(const s of CRASH_SITES){
+    const g=CRASHPLANE_MODEL.clone(true);
+    g.position.set(s.x, -0.6, s.z);                      // nose dug slightly into the ground
+    g.rotation.set(0.13, s.yaw, 0.07);                   // crash tilt
+    staticGroup.add(g);
+    addBoxCollider(s.x, s.z, 3.0, 3.0);                  // you bump the hull; wings stay walkable
+  }
+  staticGroup.updateMatrixWorld(true);
+}
+(function(){
+  let done=false; const go=()=>{ if(done) return; done=true; placeCrashPlanes(); };
+  if(typeof THREE.GLTFLoader==="undefined"){ return; }
+  new THREE.GLTFLoader().load("models/crashed_plane.glb", g=>{
+    const m=g.scene;
+    m.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true;
+      const ms=Array.isArray(o.material)?o.material:[o.material];
+      for(const mt of ms){ if(mt){ if("metalness" in mt) mt.metalness=Math.min(mt.metalness||0,0.3);
+        if(mt.map){ mt.emissiveMap=mt.map; if(mt.emissive) mt.emissive.setRGB(1,1,1); mt.emissiveIntensity=0.3; }  // self-lit so the wreck reads at night
+        mt.needsUpdate=true; } } } });
+    const wrap=new THREE.Group(); wrap.add(m); wrap.updateMatrixWorld(true);
+    let box=new THREE.Box3().setFromObject(m), sz=new THREE.Vector3(); box.getSize(sz);
+    m.scale.setScalar(30/(Math.max(sz.x,sz.y,sz.z)||1)); wrap.updateMatrixWorld(true);   // ~30-unit wreck landmark
+    box.setFromObject(m); const c=new THREE.Vector3(); box.getCenter(c);
+    m.position.set(-c.x, -box.min.y, -c.z); CRASHPLANE_MODEL=wrap;
+    go();
+  }, undefined, e=>{ console.warn("crashed_plane.glb failed", e); });
+})();
+// free ground loot piled around every wreck (called at game start)
+function spawnCrashLoot(){
+  const pool=["ammo","ammo","metal","metal","mat","shield","heal","fuel","weapon"];
+  for(const s of CRASH_SITES){
+    for(let k=0;k<16;k++){ const a=rand(0,6.28), r=rand(2.5,13);
+      dropLoot(s.x+Math.cos(a)*r, s.z+Math.sin(a)*r, pool[Math.floor(rand(0,pool.length))]); }
+  }
+}
+
 function makeFlag(x,y,z,scale){
   scale=scale||1;
   const g=new THREE.Group();
@@ -3287,7 +3336,7 @@ function startGame(){
 
   initCycle(); clockT=70;              // wake up in the evening — night falls soon
   if(net.online && !net.peer) net.connect();   // join the co-op session (P2P)
-  spawnChests(); spawnCars();          // no helicopters anymore
+  spawnChests(); spawnCars(); spawnCrashLoot();   // crash sites are loot hotspots
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
   setObjective(null);
 
