@@ -150,7 +150,7 @@
     <div id="wpnName">Пістолет</div>
     <div id="ammo">12<small> / 12</small></div>
     <div id="mats">🪵 <span id="matVal">50</span>&nbsp;🪨 <span id="stoneVal">0</span>&nbsp;🔩 <span id="metalVal">0</span></div>
-    <div id="mats2" style="font-size:13px;color:#ccd6f0">🏖️ <span id="sandVal">0</span>&nbsp;🔷 <span id="glassVal">0</span>&nbsp;<span style="color:#7f8db3">· I — інвентар</span></div>
+    <div id="mats2" style="font-size:13px;color:#ccd6f0">🟤 <span id="oreVal">0</span>&nbsp;🏖️ <span id="sandVal">0</span>&nbsp;🔷 <span id="glassVal">0</span>&nbsp;<span style="color:#7f8db3">· I — інвентар</span></div>
     <div id="modeTag" class="mode-combat">⚔ Бій</div>
   </div>
 
@@ -177,8 +177,8 @@
       <b>B</b><span>Перемкнути режим Бій / Будівництво</span>
       <b>1–8</b><span>Бій: 1-4 зброя, 5 кірка ⛏️, 6 сокира 🪓, 7 лопата 🪣, 8 базука 🚀</span>
       <b>I</b><span>Інвентар 🎒 — 26 комірок, ресурси по 100 у стосі</span>
-      <b>🪣</b><span>Лопатою копай пісок 🏖️ на пляжі → у печі 🔥 (E) переплав пісок у скло 🔷</span>
-      <b>Буд.</b><span>1 стіна · 2 двері · 3 вікно · 4 підлога · 5 драбина · 6 турель · 7 факел · 8 шипи · 9 стіл крафта 🔨</span>
+      <b>🪣</b><span>Лопатою копай пісок 🏖️ на пляжі (наведись на пісок). Побудуй піч 🔥 (Буд.→0) і біля неї (E) плав: <b>2🏖️+1🪵→🔷 скло</b>, <b>2🟤 руда+1🪵→🔩 метал</b> (руду 🟤 бий кіркою з залізних каменів)</span>
+      <b>Буд.</b><span>1 стіна · 2 двері · 3 вікно · 4 підлога · 5 драбина · 6 турель · 7 факел · 8 шипи · 9 стіл крафта 🔨 · 0 піч 🔥</span>
       <b>U</b><span>Апгрейд: дерево→камінь (🪨), камінь→метал (🔩)</span>
       <b>🔨</b><span>Стіл крафта став на <b>металеву підлогу</b> — там крафтиш усю зброю (старт без зброї!)</span>
       <b>E</b><span>Скриня / стіл крафта / <b>відчинити-зачинити двері</b> · сокирою бий дерева, кіркою — каміння/руду</span>
@@ -545,6 +545,7 @@ const OAK_MAT  =new THREE.MeshStandardMaterial({color:0x4a9e4a,roughness:1});
 
 // ---- 3D prop models (.glb) for trees, rocks and iron ore ----
 let TREE_MODEL=null, ROCK_MODEL=null, IRON_MODEL=null, FURNACE_MODEL=null, SANDPILE_MODEL=null, SHOVEL_HELD=null;
+let SHOVEL_ROT=[-1.15, 0.3, 0.15];   // held shovel orientation (blade forward, scoop up)
 let furnaces=[];   // bonfire smelters {mesh,x,z,y} — smelt sand 🏖️ into glass 🔷 (E)
 function loadProp(url, targetH, onDone){
   if(typeof THREE.GLTFLoader==="undefined"){ onDone&&onDone(null); return; }
@@ -683,24 +684,24 @@ function placeVegetation(){
       if(g) g.position.y=-0.12;   // sit on the sandy beach ring
     }
   }
-  // Furnaces (bonfires) just inside the beach — smelt sand 🏖️ into glass 🔷 (E).
-  if(FURNACE_MODEL){
-    for(let i=0;i<8;i++){
-      const ang=(i/8)*6.28 + wr(-0.25,0.25), rad=wr(WORLD*0.9, WORLD*0.96);
-      placeFurnace(Math.cos(ang)*rad, Math.sin(ang)*rad);
-    }
-  }
+  // (Furnaces are no longer scattered on the map — the player BUILDS them in build mode, key 0.)
   // freeze the freshly-placed static props so they don't recompute matrices each frame
   staticGroup.updateMatrixWorld(true);
   staticGroup.traverse(o=>{ if(!o.userData.anim) o.matrixAutoUpdate=false; });
 }
-// Place a bonfire smelter at (x,z): model + warm glow, registered so E opens the smelt menu nearby.
-function placeFurnace(x,z){
-  if(!FURNACE_MODEL) return;
-  const g=FURNACE_MODEL.clone(true); g.position.set(x,0,z); g.scale.setScalar(1.7); g.rotation.y=wr(0,6.28);
-  staticGroup.add(g); g.updateMatrixWorld(true);
-  const glow=new THREE.PointLight(0xff8a2a,1.1,14,2); glow.position.set(x,1.6,z); glow.userData.anim=true; staticGroup.add(glow);
-  furnaces.push({mesh:g, x, z, y:0, glow, phase:wr(0,6.28)});
+// Build a small bonfire-furnace mesh: the uploaded model if loaded, else a code fallback.
+function makeFurnaceMesh(){
+  if(FURNACE_MODEL){ const g=FURNACE_MODEL.clone(true); g.scale.setScalar(1.0); g.rotation.y=Math.random()*6.28; return g; }
+  const g=new THREE.Group();
+  const stoneMat=new THREE.MeshStandardMaterial({color:0x8a8f9c,roughness:1,flatShading:true});
+  for(let i=0;i<8;i++){ const a=i/8*6.28; const s=new THREE.Mesh(new THREE.DodecahedronGeometry(0.26,0),stoneMat);
+    s.position.set(Math.cos(a)*0.72,0.18,Math.sin(a)*0.72); s.castShadow=true; g.add(s); }
+  const logMat=new THREE.MeshStandardMaterial({color:0x6b4423,roughness:.9});
+  for(let i=0;i<4;i++){ const l=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,1.0,6),logMat);
+    l.position.set(0,0.42,0); l.rotation.set(1.05, i/4*3.14, 0); g.add(l); }
+  const fire=new THREE.Mesh(new THREE.ConeGeometry(0.3,0.7,7),new THREE.MeshBasicMaterial({color:0xff7a1a}));
+  fire.position.y=0.55; g.add(fire);
+  return g;
 }
 // Trees/rocks/iron use .glb models that load asynchronously — place the vegetation
 // once the models are ready (or right away, with code shapes, if there's no loader).
@@ -712,7 +713,7 @@ function placeFurnace(x,z){
   loadProp("models/rock.glb", 4.5, m=>{ ROCK_MODEL=m; ready(); });
   loadProp("models/iron.glb", 4,   m=>{ IRON_MODEL=m; ready(); });
   loadProp("models/grass.glb", 1.3, m=>{ GRASS_MODEL=m; ready(); });
-  loadProp("models/furnace.glb", 2.4, m=>{ FURNACE_MODEL=m; ready(); });
+  loadProp("models/furnace.glb", 1.5, m=>{ FURNACE_MODEL=m; ready(); });
   loadProp("models/sand_pile.glb", 1.2, m=>{ SANDPILE_MODEL=m; ready(); });
   loadProp("models/shovel.glb", 1.0, m=>{ SHOVEL_HELD=m; });   // held viewmodel for the 🪣 shovel (not gated on vegetation)
   setTimeout(go, 25000);  // safety net so vegetation always appears even if a model stalls (generous for slow connections)
@@ -1542,7 +1543,7 @@ function makePlayer(){
     vel:new THREE.Vector3(0,0,0),
     yaw:0, pitch:0, onGround:true,
     hp:100, maxHp:100, shield:0, maxShield:100,
-    mats:50, stone:0, metal:0, fuel:0, sand:0, glass:0, alive:true,   // wood 🪵 build · stone 🪨 & metal 🔩 upgrade · fuel ⛽ for cars · sand 🏖️ dig → glass 🔷 smelt
+    mats:50, stone:0, metal:0, fuel:0, sand:0, glass:0, ore:0, alive:true,   // wood 🪵 build · stone 🪨 upgrade · ore 🟤 smelt→metal 🔩 · fuel ⛽ cars · sand 🏖️ smelt→glass 🔷
     inv:{pickaxe:{melee:true}, axe:{melee:true}, shovel:{melee:true}}, // start with tools (🪓 axe · ⛏️ pickaxe · 🪣 shovel) — craft guns at the bench
     vehicle:null, spikeKit:0,   // crafted truck-spike kits waiting to be bolted on (H)
     cur:"axe", lastShot:0, reloading:false, reloadEnd:0,
@@ -1587,7 +1588,7 @@ function buildViewmodel(){
     // shovel: use the uploaded .glb model, oriented into the hand (blade forward-down)
     if(w.harvest==="sand" && SHOVEL_HELD){
       const orient=new THREE.Group(); orient.add(SHOVEL_HELD.clone(true));
-      orient.rotation.set(1.15, 0.3, 0.15);
+      orient.rotation.set(SHOVEL_ROT[0], SHOVEL_ROT[1], SHOVEL_ROT[2]);
       gunMesh.add(orient); gunMesh.updateMatrixWorld(true);
       let box=new THREE.Box3().setFromObject(orient), sz=new THREE.Vector3(); box.getSize(sz);
       const s=0.95/(Math.max(sz.x,sz.y,sz.z)||1); orient.scale.setScalar(s);
@@ -1718,6 +1719,7 @@ function structGeom(kind){
   if(kind==="turret") return new THREE.CylinderGeometry(1.0,1.3,2.4,10);
   if(kind==="torch")  return new THREE.CylinderGeometry(0.12,0.12,2.4,6);
   if(kind==="spikes") return new THREE.BoxGeometry(GRID*0.9, 1.4, GRID*0.9);
+  if(kind==="furnace") return new THREE.BoxGeometry(1.6, 1.5, 1.6);
   if(kind==="bench")  return new THREE.BoxGeometry(3.4, 2.4, 1.9);
   if(kind==="ladder")return new THREE.BoxGeometry(1.7, GRID, 0.35);
   if(kind==="floor") return new THREE.BoxGeometry(GRID, WALL_T, GRID);
@@ -1852,7 +1854,7 @@ function placement(){
     // sits on the tile you're standing on (must be a metal floor)
     return {x:homeX, y:baseY, z:homeZ, rot:0, kind:"bench"};
   }
-  if(buildPiece==="turret"||buildPiece==="torch"||buildPiece==="spikes"){
+  if(buildPiece==="turret"||buildPiece==="torch"||buildPiece==="spikes"||buildPiece==="furnace"){
     return {x:player.pos.x+fx*GRID*0.9, y:baseY, z:player.pos.z+fz*GRID*0.9, rot:0, kind:buildPiece};
   }
   // wall / door / window / ladder: sit on the faced edge of the current tile
@@ -1863,6 +1865,7 @@ function placement(){
   return {x, y:baseY+GRID/2, z, rot, kind};
 }
 const TURRET_COST=30, TORCH_COST=5, SPIKE_COST=15;
+const FURNACE_COST={w:25, s:20};   // 🪵 wood + 🪨 stone to build a furnace 🔥
 function pieceCost(kind){ return kind==="turret"?TURRET_COST : kind==="torch"?TORCH_COST : kind==="spikes"?SPIKE_COST : 10; }
 const UPGRADE_COST=20;                                               // stone/metal to upgrade
 
@@ -1878,8 +1881,10 @@ function updateGhost(){
   ghost.rotation.set(0,p.rot,0);
   if(p.kind==="turret") ghost.position.y=p.y+1.2;
   if(p.kind==="bench") ghost.position.y=p.y+1.2;
+  if(p.kind==="furnace") ghost.position.y=p.y+0.75;
   let ok;
   if(p.kind==="bench") ok = metalFloorAt(p.x,p.z,p.y) && player.mats>=BENCH_COST.w && player.stone>=BENCH_COST.s && player.metal>=BENCH_COST.m;
+  else if(p.kind==="furnace") ok = player.mats>=FURNACE_COST.w && player.stone>=FURNACE_COST.s;
   else ok=player.mats>=pieceCost(p.kind);
   ghost.material.color.setHex(ok?0x66ffcc:0xff6666);
 }
@@ -1939,6 +1944,12 @@ function spawnPiece(p, quiet){
     benches.push({mesh:m, x:p.x, z:p.z, y:p.y});
     if(!quiet){ playBlip(360,0.06); toast("Стіл крафта 🔨 — підійди й тисни E"); } return;
   }
+  if(p.kind==="furnace"){
+    const m=makeFurnaceMesh(); m.position.set(p.x,p.y,p.z); dynGroup.add(m);
+    const glow=new THREE.PointLight(0xff8a2a,1.0,9,2); glow.position.set(p.x,1.1,p.z); dynGroup.add(glow);
+    furnaces.push({mesh:m, x:p.x, z:p.z, y:p.y, glow});
+    if(!quiet){ playBlip(340,0.06); toast("Піч 🔥 готова — тисни E, щоб плавити (потрібне 🪵 дерево)"); } return;
+  }
   let mesh;
   if(p.kind==="ladder") mesh=makeLadderMesh();
   else mesh=makePieceMesh(p.kind);          // textured wall / door / window / floor
@@ -1991,6 +2002,14 @@ function placeStructure(){
       toast("Треба "+c.w+"🪵 "+c.s+"🪨 "+c.m+"🔩"); return; }
     spawnPiece(p, false);
     player.mats-=c.w; player.stone-=c.s; player.metal-=c.m; updateHUD();
+    net.send({t:"build", p:{kind:p.kind,x:p.x,y:p.y,z:p.z,rot:p.rot}});
+    return;
+  }
+  if(p.kind==="furnace"){
+    const c=FURNACE_COST;
+    if(player.mats<c.w||player.stone<c.s){ toast("Треба "+c.w+"🪵 "+c.s+"🪨"); return; }
+    spawnPiece(p, false);
+    player.mats-=c.w; player.stone-=c.s; playBlip(340,0.06); updateHUD();
     net.send({t:"build", p:{kind:p.kind,x:p.x,y:p.y,z:p.z,rot:p.rot}});
     return;
   }
@@ -2539,7 +2558,7 @@ function meleeSwing(w, now){
     const bonus = (w.harvest===hv) || (w.harvest==="stone" && hv==="iron");
     const gain = bonus?16:9;
     if(hv==="wood"){ player.mats=Math.min(999,player.mats+gain); toast("+"+gain+" 🪵 дерево"); }
-    else if(hv==="iron"){ const m=Math.round(gain*0.8); player.metal=Math.min(999,player.metal+m); toast("+"+m+" 🔩 метал"); }
+    else if(hv==="iron"){ player.ore=Math.min(999,(player.ore||0)+gain); toast("+"+gain+" 🟤 руда — переплав у печі 🔥"); }
     else if(hv==="sand"){ player.sand=Math.min(999,player.sand+gain); toast("+"+gain+" 🏖️ пісок"); }
     else { player.stone=Math.min(999,player.stone+gain); toast("+"+gain+" 🪨 камінь"); }
     harv.userData.hp -= bonus?2:1;
@@ -2554,14 +2573,20 @@ function meleeSwing(w, now){
   else burst(h.point.x,h.point.y,h.point.z,0xffffff,3);
 }
 
-// Dig bare beach ground with the 🪏 shovel (works anywhere on the sandy ring, no sand pile needed).
+// Dig bare beach ground with the 🪣 shovel. Aim at the SAND: we intersect the camera ray
+// with the ground plane (y≈0) so you can't "dig the sky" — the hit must be on the beach ring.
 function tryDigSand(w){
   if(!w || w.harvest!=="sand") return;
-  const pr=Math.hypot(player.pos.x, player.pos.z);
-  if(pr < WORLD*0.9){ toast("Копати пісок можна лише на пляжі 🏖️"); return; }
+  camera.getWorldDirection(tmpD);
+  if(tmpD.y > -0.08){ toast("Наведи лопату на пісок 🏖️"); return; }   // must be looking down at the ground
+  const origin=camera.getWorldPosition(new THREE.Vector3());
+  const t = -origin.y / tmpD.y;                                       // distance to the y=0 plane
+  if(t<0 || t>w.range){ toast("Підійди ближче до піску 🏖️"); return; }
+  const gx=origin.x+tmpD.x*t, gz=origin.z+tmpD.z*t;
+  const rad=Math.hypot(gx,gz);
+  if(rad < WORLD*0.92 || rad > WORLD*1.06){ toast("Копати пісок можна лише на пляжі 🏖️"); return; }
   const gain=12; player.sand=Math.min(999, player.sand+gain);
-  const fx=player.pos.x - Math.sin(player.yaw)*1.6, fz=player.pos.z - Math.cos(player.yaw)*1.6;
-  burst(fx, 0.2, fz, 0xe0c98a, 12);
+  burst(gx, 0.2, gz, 0xe0c98a, 12);
   playBlip(240,0.05); toast("+"+gain+" 🏖️ пісок"); updateHUD();
 }
 function removeHarvestable(mesh){
@@ -2943,11 +2968,11 @@ addEventListener("keydown",e=>{
   else if(c==="KeyU"){ if(buildMode) upgradeAimed(); }
   else if(c==="KeyM"){ toggleMusic(); }
   else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
-  else if(/^Digit[1-9]$/.test(c)){
+  else if(/^Digit[0-9]$/.test(c)){
     const n=c.slice(5);
-    if(buildMode){ const pc={1:"wall",2:"door",3:"window",4:"floor",5:"ladder",6:"turret",7:"torch",8:"spikes",9:"bench"}[n];
+    if(buildMode){ const pc={1:"wall",2:"door",3:"window",4:"floor",5:"ladder",6:"turret",7:"torch",8:"spikes",9:"bench",0:"furnace"}[n];
       if(pc){ buildPiece=pc; buildInvBar(); updateGhost(); } }
-    else { const wname=ALLSEL[parseInt(n)-1]; if(wname && player.inv[wname]){ selectWeapon(wname); } }
+    else if(n!=="0"){ const wname=ALLSEL[parseInt(n)-1]; if(wname && player.inv[wname]){ selectWeapon(wname); } }
   }
 });
 addEventListener("keyup",e=>{ keys[e.code]=false; });
@@ -3142,20 +3167,39 @@ function closeFurnace(){
 }
 function buildFurnaceGrid(){
   const grid=document.getElementById("furnaceGrid"); grid.innerHTML="";
-  const sand=Math.floor(player.sand||0), glass=Math.floor(player.glass||0), out=Math.floor(sand/2);
-  const d=document.createElement("div"); d.className="craftItem"+(out>0?"":" cant");
-  d.innerHTML=`<div class="cname">🏖️ Пісок → 🔷 Скло</div>`+
-    `<div class="ccost">Пісок: ${sand} · Скло: ${glass}</div>`+
-    `<div class="ccost" style="color:#8fd0ff">2 🏖️ = 1 🔷 · переплавить ${out} 🔷</div>`+
-    `<button class="cbtn">🔥 Переплавити все</button>`;
-  d.querySelector(".cbtn").addEventListener("click",smeltSand);
-  grid.appendChild(d);
+  const wood=Math.floor(player.mats||0), sand=Math.floor(player.sand||0), glass=Math.floor(player.glass||0),
+        ore=Math.floor(player.ore||0), metal=Math.floor(player.metal||0);
+  const gOut=Math.min(Math.floor(sand/2), wood);   // 2 sand + 1 wood -> 1 glass
+  const mOut=Math.min(Math.floor(ore/2), wood);    // 2 ore  + 1 wood -> 1 metal
+  // sand -> glass
+  const d1=document.createElement("div"); d1.className="craftItem"+(gOut>0?"":" cant");
+  d1.innerHTML=`<div class="cname">🏖️ Пісок → 🔷 Скло</div>`+
+    `<div class="ccost">Пісок: ${sand} · Дерево: ${wood} · Скло: ${glass}</div>`+
+    `<div class="ccost" style="color:#8fd0ff">2 🏖️ + 1 🪵 = 1 🔷 · вийде ${gOut} 🔷</div>`+
+    `<button class="cbtn">🔥 Плавити скло</button>`;
+  d1.querySelector(".cbtn").addEventListener("click",smeltSand);
+  grid.appendChild(d1);
+  // ore -> metal
+  const d2=document.createElement("div"); d2.className="craftItem"+(mOut>0?"":" cant");
+  d2.innerHTML=`<div class="cname">🟤 Руда → 🔩 Метал</div>`+
+    `<div class="ccost">Руда: ${ore} · Дерево: ${wood} · Метал: ${metal}</div>`+
+    `<div class="ccost" style="color:#ffbf8f">2 🟤 + 1 🪵 = 1 🔩 · вийде ${mOut} 🔩</div>`+
+    `<button class="cbtn">🔥 Плавити метал</button>`;
+  d2.querySelector(".cbtn").addEventListener("click",smeltOre);
+  grid.appendChild(d2);
 }
 function smeltSand(){
-  const out=Math.floor((player.sand||0)/2);
-  if(out<=0){ toast("Потрібно щонайменше 2 🏖️ піску"); return; }
-  player.sand-=out*2; player.glass=Math.min(999,(player.glass||0)+out);
-  playBlip(520,0.12); toast("🔥 Переплавлено: +"+out+" 🔷 скло");
+  const out=Math.min(Math.floor((player.sand||0)/2), Math.floor(player.mats||0));
+  if(out<=0){ toast("Треба ≥2 🏖️ піску і 🪵 дерево як паливо"); return; }
+  player.sand-=out*2; player.mats-=out; player.glass=Math.min(999,(player.glass||0)+out);
+  playBlip(520,0.12); toast("🔥 Виплавлено +"+out+" 🔷 скло (−"+out+" 🪵)");
+  buildFurnaceGrid(); updateHUD();
+}
+function smeltOre(){
+  const out=Math.min(Math.floor((player.ore||0)/2), Math.floor(player.mats||0));
+  if(out<=0){ toast("Треба ≥2 🟤 руди і 🪵 дерево як паливо"); return; }
+  player.ore-=out*2; player.mats-=out; player.metal=Math.min(999,(player.metal||0)+out);
+  playBlip(600,0.12); toast("🔥 Виплавлено +"+out+" 🔩 метал (−"+out+" 🪵)");
   buildFurnaceGrid(); updateHUD();
 }
 
@@ -3165,7 +3209,7 @@ function smeltSand(){
 let invOpen=false;
 const TOOL_ICO={pistol:"🔫",ar:"🔫",shotgun:"🔫",sniper:"🎯",bazooka:"🚀",pickaxe:"⛏️",axe:"🪓",shovel:"🪣"};
 const RES_ITEMS=[{k:"mats",name:"Дерево",ico:"🪵"},{k:"stone",name:"Камінь",ico:"🪨"},
-  {k:"metal",name:"Метал",ico:"🔩"},{k:"fuel",name:"Паливо",ico:"⛽"},
+  {k:"ore",name:"Руда",ico:"🟤"},{k:"metal",name:"Метал",ico:"🔩"},{k:"fuel",name:"Паливо",ico:"⛽"},
   {k:"sand",name:"Пісок",ico:"🏖️"},{k:"glass",name:"Скло",ico:"🔷"}];
 // Build the flat list of inventory items: tools/guns (1 per slot) then resource stacks of 100.
 function collectBag(){
@@ -3209,7 +3253,7 @@ function closeInv(){
 function buildInvBar(){
   const bar=document.getElementById("invbar"); bar.innerHTML="";
   if(buildMode){
-    const pieces=[["wall","Стіна","1"],["door","Двері","2"],["window","Вікно","3"],["floor","Підлога","4"],["ladder","Драбина","5"],["turret","Турель","6"],["torch","Факел","7"],["spikes","Шипи","8"],["bench","Стіл 🔨","9"]];
+    const pieces=[["wall","Стіна","1"],["door","Двері","2"],["window","Вікно","3"],["floor","Підлога","4"],["ladder","Драбина","5"],["turret","Турель","6"],["torch","Факел","7"],["spikes","Шипи","8"],["bench","Стіл 🔨","9"],["furnace","Піч 🔥","0"]];
     for(const [id,label,key] of pieces){
       const d=document.createElement("div");
       d.className="slot"+(buildPiece===id?" active":"");
@@ -3238,6 +3282,7 @@ function updateHUD(){
   document.getElementById("metalVal").textContent=player.metal;
   document.getElementById("sandVal").textContent=Math.floor(player.sand||0);
   document.getElementById("glassVal").textContent=Math.floor(player.glass||0);
+  document.getElementById("oreVal").textContent=Math.floor(player.ore||0);
   if(invOpen) renderBag();
   const w=WEAPONS[player.cur], inv=player.inv[player.cur];
   document.getElementById("wpnName").textContent=w.name;
@@ -3401,7 +3446,7 @@ function update(dt){
   if(keys["KeyA"]||keys["ArrowLeft"]) mx-=1; if(keys["KeyD"]||keys["ArrowRight"]) mx+=1;
   // On a ladder, W/S climb instead of walking (until you reach the top).
   if(climbingBelowTop) mz=0;
-  if(crafting||truckStoring){ mx=0; mz=0; }   // frozen while a menu is open
+  if(crafting||truckStoring||invOpen||furnaceOpen){ mx=0; mz=0; }   // frozen while a menu is open
   const yaw=player.yaw;
   // forward/right in world
   let wx=0,wz=0;
@@ -3414,7 +3459,7 @@ function update(dt){
   let nx=player.pos.x+wx*speed*dt;
   let nz=player.pos.z+wz*speed*dt;
   [nx,nz]=resolveHoriz(nx,nz);
-  { const rr=Math.hypot(nx,nz), lim=WORLD-3; if(rr>lim){ nx=nx/rr*lim; nz=nz/rr*lim; } }  // stay on the round island
+  { const rr=Math.hypot(nx,nz), lim=WORLD*1.05; if(rr>lim){ nx=nx/rr*lim; nz=nz/rr*lim; } }  // stay on the island, but WALK OUT onto the sandy beach ring
   player.pos.x=nx; player.pos.z=nz;
 
   // ---- Ladder climbing (vertical) ----
