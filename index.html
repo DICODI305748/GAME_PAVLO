@@ -2115,10 +2115,20 @@ function resolveHoriz(px,pz){
       if(s.col) check(s.col.minx,s.col.maxx,s.col.minz,s.col.maxz,s.col.base,s.col.top);
       if(s.cols) for(const c of s.cols) check(c.minx,c.maxx,c.minz,c.maxz,c.base,c.top);
     }
-    // parked vehicles are solid — you can't walk through the truck
+    // parked vehicles are solid — resolved as the truck's real oriented rectangle
+    // (a plain circle felt wrong: it shoved you away from the empty space beside a long truck)
     if(typeof cars!=="undefined") for(const car of cars){ if(car===player.vehicle) continue;
-      const dx=px-car.x, dz=pz-car.z, d2=dx*dx+dz*dz, rr=PLAYER_R+car.colR;
-      if(d2<rr*rr && d2>1e-7){ const d=Math.sqrt(d2); const push=rr-d; px+=dx/d*push; pz+=dz/d*push; } }
+      const vm=CARVM[car.variant]||{len:5,colR:2};
+      const hl=vm.len*0.46, hw=vm.colR*0.72;                 // half length (forward) & half width (side)
+      const sh=Math.sin(car.heading), ch=Math.cos(car.heading);
+      const dx=px-car.x, dz=pz-car.z;
+      let lf=dx*sh+dz*ch, lr=dx*ch-dz*sh;                    // player in the truck's local frame
+      const cf=clamp(lf,-hl,hl), cr=clamp(lr,-hw,hw);
+      const ef=lf-cf, er=lr-cr, d2=ef*ef+er*er; let plf=lf, plr=lr;
+      if(d2>1e-6){ if(d2<PLAYER_R*PLAYER_R){ const d=Math.sqrt(d2), push=PLAYER_R-d; plf=lf+ef/d*push; plr=lr+er/d*push; } }
+      else { const penF=hl-Math.abs(lf), penR=hw-Math.abs(lr);   // centre inside the box: eject the short way
+        if(penF<penR) plf=(lf<0?-1:1)*(hl+PLAYER_R); else plr=(lr<0?-1:1)*(hw+PLAYER_R); }
+      if(plf!==lf||plr!==lr){ px=car.x+plf*sh+plr*ch; pz=car.z+plf*ch-plr*sh; } }
   }
   return [px,pz];
 }
@@ -2459,21 +2469,28 @@ let SPIKE_MODEL=null;
     for(const car of cars) if(car.spiked) attachSpikes(car);   // re-attach if any truck already has them
   }, undefined, e=>console.warn("spikes failed", e));
 })();
-// bolt a spike ram onto the front of a car (mesh-local +Z is forward)
+// bolt a spike ram onto the front bumper of a car (mesh-local +Z is forward)
 function attachSpikes(car){
   if(!car.mesh) return;
   const old=car.mesh.getObjectByName("__spikes"); if(old) car.mesh.remove(old);
   const vm=CARVM[car.variant];
-  let s;
-  if(SPIKE_MODEL){ s=SPIKE_MODEL.clone(true);
-    const box=new THREE.Box3().setFromObject(s), sz=new THREE.Vector3(); box.getSize(sz);
-    const width=(vm.colR||2)*1.7;                       // span the front of the vehicle
-    s.scale.setScalar(width/(Math.max(sz.x,sz.z)||1));
-  } else {                                              // fallback: a row of metal cones
-    s=new THREE.Group(); const mat=new THREE.MeshStandardMaterial({color:0xb0b4bc,metalness:.7,roughness:.35});
-    for(let i=-2;i<=2;i++){ const c=new THREE.Mesh(new THREE.ConeGeometry(0.22,0.9,6),mat); c.rotation.x=Math.PI/2; c.position.set(i*0.6,0,0); s.add(c); }
+  const holder=new THREE.Group(); holder.name="__spikes";
+  if(SPIKE_MODEL){
+    const s=SPIKE_MODEL.clone(true); s.rotation.x=-Math.PI/2;   // road-strip lies flat; tip it up so the spikes face FORWARD
+    holder.add(s); holder.updateMatrixWorld(true);
+    // measure + centre s while the holder scale is still 1 (so units match), THEN scale
+    let box=new THREE.Box3().setFromObject(s), sz=box.getSize(new THREE.Vector3()), c=box.getCenter(new THREE.Vector3());
+    s.position.sub(c);                                          // centre the ram on the holder origin
+    const width=(vm.colR||2)*0.95;                             // a touch wider than the cab
+    holder.scale.setScalar(width/(Math.max(sz.x,sz.y,sz.z)||1));
+  } else {                                                      // fallback: a row of metal cones facing forward
+    const mat=new THREE.MeshStandardMaterial({color:0xc0c4cc,metalness:.7,roughness:.35});
+    for(let i=-2;i<=2;i++){ const cone=new THREE.Mesh(new THREE.ConeGeometry(0.2,1.0,6),mat); cone.rotation.x=Math.PI/2; cone.position.set(i*0.55,0,0); holder.add(cone); }
+    holder.scale.setScalar((vm.colR||2)*0.9);
   }
-  s.name="__spikes"; s.position.set(0,0.7,(vm.len||6)*0.5*0.92); car.mesh.add(s);
+  const frontZ=(vm.len||6)*0.5*1.02;                           // just ahead of the front bumper (plough)
+  holder.position.set(0, 0.8, frontZ);
+  car.mesh.add(holder);
 }
 function makeCarProc(x,z){   // fallback if a model won't load
   const g=new THREE.Group();
