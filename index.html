@@ -383,6 +383,12 @@ function mulberry32(a){ return function(){ a|=0; a=(a+0x6D2B79F5)|0; let t=Math.
   t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
 const wrand = mulberry32(WORLD_SEED);                 // seeded RNG for world gen
 const wr = (a,b)=>a+wrand()*(b-a);
+// Separate seeded stream for match-time spawns (chests / cars / crash loot). Kept independent
+// of the async vegetation stream so HOST and GUESTS generate the SAME layout — this is what
+// makes every player see the same cars & chests in co-op. Re-seeded at each startGame().
+const MATCH_SEED = (WORLD_SEED ^ 0x9E3779B9)>>>0;
+let matchRand = mulberry32(MATCH_SEED);
+const mr = (a,b)=>a+matchRand()*(b-a);
 function hash2(ix,iz){ let h=Math.imul(ix|0,374761393)+Math.imul(iz|0,668265263)+WORLD_SEED;
   h=Math.imul(h^(h>>>13),1274126177); return ((h^(h>>>16))>>>0)/4294967296; }
 function vnoise(x,z){ // smooth value noise in [0,1]
@@ -876,8 +882,8 @@ function placeCrashPlanes(){
 function spawnCrashLoot(){
   const pool=["ammo","ammo","metal","metal","mat","shield","heal","fuel","weapon"];
   for(const s of CRASH_SITES){
-    for(let k=0;k<16;k++){ const a=rand(0,6.28), r=rand(2.5,13);
-      dropLoot(s.x+Math.cos(a)*r, s.z+Math.sin(a)*r, pool[Math.floor(rand(0,pool.length))]); }
+    for(let k=0;k<16;k++){ const a=mr(0,6.28), r=mr(2.5,13);
+      dropLoot(s.x+Math.cos(a)*r, s.z+Math.sin(a)*r, pool[Math.floor(mr(0,pool.length))]); }
   }
 }
 
@@ -1459,6 +1465,13 @@ const net = {
         document.getElementById("zoneVal").textContent=nightNum; } break;
       case "zhit": if(this.isHost()){ const b=bots.find(z=>z.nid===m.nid && z.alive);
         if(b){ b.hp-=m.dmg; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } } break;
+      case "zdmg": if(m.to===this.id && player && player.alive){ damagePlayer(m.dmg,false); } break;  // a host zombie hit me
+      case "chestopen": { const c=chests[m.i]; if(c && !c.opened) markChestOpen(c); } break;          // teammate opened a chest
+      case "carenter": { const car=cars[m.ci]; if(car){ if(m.role==="driver"){ car.driverId=m.id; car.driverLocal=false; } } } break;
+      case "carexit":  { const car=cars[m.ci]; if(car && car.driverId===m.id){ car.driverId=null; car.driverLocal=false; car.speed=0; } } break;
+      case "carpos":   { const car=cars[m.ci]; if(car && !car.driverLocal){ car.x=m.x; car.z=m.z; car.heading=m.h; car.speed=m.s;
+        car.mesh.position.set(car.x,0,car.z); car.mesh.rotation.y=car.heading;
+        if(player.vehicle===car && player.passenger){ player.pos.set(car.x,0,car.z); } } } break;
       case "signal": triggerRescue(); break;   // a teammate reached the tower — everyone is rescued
     }
   },
@@ -1547,6 +1560,7 @@ function makePlayer(){
     inv:{pickaxe:{melee:true}, axe:{melee:true}, shovel:{melee:true}}, // start with tools (🪓 axe · ⛏️ pickaxe · 🪣 shovel) — craft guns at the bench
     vehicle:null, spikeKit:0,   // crafted truck-spike kits waiting to be bolted on (H)
     cur:"axe", lastShot:0, reloading:false, reloadEnd:0,
+    passenger:false,   // in co-op: true when riding a car someone else is driving
     hitFlash:0,
   };
 }
@@ -2200,23 +2214,29 @@ function spawnChests(){
   const spots=[];
   for(const h of houses) spots.push([h.chestX,h.chestZ]);   // beside each house
   for(const s of extraChestSpots) spots.push(s);   // city chests
-  for(let i=0;i<60;i++){ const a=rand(0,6.28), r=rand(MTN_R+30, WORLD-25);   // more chests across the bigger island
+  for(let i=0;i<60;i++){ const a=mr(0,6.28), r=mr(MTN_R+30, WORLD-25);   // more chests across the bigger island
     spots.push([Math.cos(a)*r, Math.sin(a)*r]); }
   for(const [x,z] of spots){
     let g, l;
-    if(CHEST_MODEL){ g=CHEST_MODEL.clone(true); g.rotation.y=rand(0,6.28); l=null; }   // .glb chest (single mesh, no separate lid)
+    if(CHEST_MODEL){ g=CHEST_MODEL.clone(true); g.rotation.y=mr(0,6.28); l=null; }   // .glb chest (single mesh, no separate lid)
     else { g=new THREE.Group();
       const b=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.9,1),mat); b.position.y=0.45; b.castShadow=true; g.add(b);
       l=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.4,1.1),lid); l.position.y=1.0; l.castShadow=true; g.add(l); }
     g.position.set(x,0,z); dynGroup.add(g);
-    chests.push({x,z,mesh:g,lid:l,opened:false,bob:rand(0,6)});
+    chests.push({x,z,mesh:g,lid:l,opened:false,bob:mr(0,6)});
   }
 }
-function openChest(c){
+// Visual/state open only (no loot) — also used when a teammate opens it over the network.
+function markChestOpen(c){
   c.opened=true;
   if(c.lid){ c.lid.rotation.x=-1.2; c.lid.position.z=-0.4; }        // code-drawn lid swings open
   else if(c.mesh){ c.mesh.rotation.z=(c.mesh.rotation.z||0)+0.1; }  // .glb chest: a little pop
   burst(c.x,1.2,c.z,0xffd54a,20);
+}
+function openChest(c){
+  if(c.opened) return;
+  markChestOpen(c);
+  const ci=chests.indexOf(c); if(ci>=0) net.send({t:"chestopen", i:ci});   // tell teammates it's open
   dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "stone");   // every chest gives stone
   if(Math.random()<0.6) dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "metal");  // most chests give metal
   if(Math.random()<0.5) dropLoot(c.x+rand(-2,2), c.z+rand(-2,2), "fuel");  // ~half of chests give fuel ⛽
@@ -2746,11 +2766,12 @@ function makeCar(variant,x,z){
 }
 function spawnCars(){
   const variants=["truck","rusty","truck","rusty","rusty","truck","rusty","truck","rusty"];   // ~4 trucks so they're easy to find
-  const spots=[]; for(let i=0;i<9;i++){ const a=rand(0,6.28), r=rand(MTN_R+50, WORLD-80); spots.push([Math.cos(a)*r, Math.sin(a)*r]); }
+  const spots=[]; for(let i=0;i<9;i++){ const a=mr(0,6.28), r=mr(MTN_R+50, WORLD-80); spots.push([Math.cos(a)*r, Math.sin(a)*r]); }
   for(let i=0;i<spots.length;i++){ const [x,z]=spots[i], v=variants[i%variants.length], vm=CARVM[v];
     const mesh=makeCar(v,x,z); dynGroup.add(mesh);
-    cars.push({mesh, x, z, heading:rand(0,6.28), speed:0, variant:v, hp:vm.hp, maxHp:vm.hp,
-      fuel:Math.round(vm.maxFuel*rand(0.15,0.55)), maxFuel:vm.maxFuel, colR:vm.colR,
+    cars.push({mesh, x, z, heading:mr(0,6.28), speed:0, variant:v, hp:vm.hp, maxHp:vm.hp,
+      fuel:Math.round(vm.maxFuel*mr(0.15,0.55)), maxFuel:vm.maxFuel, colR:vm.colR,
+      driverId:null, driverLocal:false, ci:i,   // co-op: who is driving (network id) + local seat flag
       store:{mats:0,stone:0,metal:0,fuel:0}, spiked:false}); }   // storage boot + ram-spikes flag
 }
 function updateCarHud(){
@@ -2776,10 +2797,15 @@ function destroyCar(car){
   dynGroup.remove(car.mesh); const i=cars.indexOf(car); if(i>=0) cars.splice(i,1);
   toast("💥 Машина знищена!");
 }
+function myNetId(){ return net.online ? (net.id||1) : 1; }
 function toggleVehicle(){
   if(player.skydiving) return;
   if(player.vehicle){
-    const car=player.vehicle; player.vehicle=null;
+    // ---- get OUT ----
+    const car=player.vehicle, wasDriver=car.driverLocal;
+    player.vehicle=null; player.passenger=false;
+    if(wasDriver){ car.driverId=null; car.driverLocal=false; car.speed=0;
+      net.send({t:"carexit", ci:car.ci, id:myNetId()}); }
     const rx=Math.cos(car.heading), rz=-Math.sin(car.heading);
     player.pos.set(car.x+rx*(car.colR+2.2), 0, car.z+rz*(car.colR+2.2)); player.vel.set(0,0,0);
     document.getElementById("carHud").classList.add("hidden");
@@ -2788,17 +2814,39 @@ function toggleVehicle(){
   }
   let best=null,bd=6.5;
   for(const car of cars){ const d=Math.hypot(car.x-player.pos.x, car.z-player.pos.z); if(d<bd){ bd=d; best=car; } }
-  if(best){ player.vehicle=best; buildMode=false; updateModeTag();
+  if(!best){ toast("Поруч немає машини (F біля машини)"); return; }
+  buildMode=false; player.vehicle=best; updateModeTag();
+  const taken = best.driverId!=null && !best.driverLocal;   // someone ELSE is already driving
+  if(taken){
+    // ---- become a PASSENGER (the seat is taken) ----
+    player.passenger=true;
+    document.getElementById("carHud").classList.remove("hidden");
+    document.getElementById("carName").textContent="🧍 Пасажир · "+CARVM[best.variant].name;
+    if(gunMesh) gunMesh.visible=true;                       // passengers can still shoot
+    net.send({t:"carenter", ci:best.ci, id:myNetId(), role:"passenger"});
+    toast("🧍 Ти ПАСАЖИР — за кермом уже хтось є. F — вийти, ЛКМ — стріляти");
+  } else {
+    // ---- become the DRIVER (empty car) ----
+    player.passenger=false; best.driverId=myNetId(); best.driverLocal=true;
     if(gunMesh) gunMesh.visible=false;
     document.getElementById("carHud").classList.remove("hidden");
     document.getElementById("carName").textContent="🚗 "+CARVM[best.variant].name;
     updateCarHud();
+    net.send({t:"carenter", ci:best.ci, id:myNetId(), role:"driver"});
     toast(best.fuel>0? "🚗 За кермом! WASD — їхати · G — заправити · F — вийти"
-                     : "🚗 Бак порожній! Тисни G щоб заправити (⛽ "+player.fuel+")"); }
-  else toast("Поруч немає машини (F біля машини)");
+                     : "🚗 Бак порожній! Тисни G щоб заправити (⛽ "+player.fuel+")");
+  }
 }
 function updateVehicle(dt){
   const car=player.vehicle, vm=CARVM[car.variant];
+  // ---- PASSENGER: ride along; the car's position is driven by the network (carpos) ----
+  if(player.passenger){
+    player.pos.set(car.x,0,car.z);
+    camera.position.set(car.x, 2.2, car.z);                 // first-person seat, free look
+    camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
+    if(gunMesh) gunMesh.visible=true;
+    updateCarHud(); return;
+  }
   if(gunMesh) gunMesh.visible=false;                        // no floating gun in the chase view
   const hasFuel=car.fuel>0;
   const throttle=(keys["KeyW"]||keys["ArrowUp"])?1 : (keys["KeyS"]||keys["ArrowDown"])?-1 : 0;
@@ -2837,6 +2885,10 @@ function updateVehicle(dt){
   const wantFov=75+clamp(Math.abs(car.speed),0,40)*0.4;
   camera.fov+=(wantFov-camera.fov)*Math.min(1,dt*6); camera.updateProjectionMatrix();
   updateCarHud();
+  // broadcast my car's position to teammates (~12/s) so they see it move and can ride as passengers
+  if(net.online && net.connected){ car._sendT=(car._sendT||0)-dt;
+    if(car._sendT<=0){ car._sendT=0.08;
+      net.send({t:"carpos", ci:car.ci, x:+car.x.toFixed(2), z:+car.z.toFixed(2), h:+car.heading.toFixed(3), s:+car.speed.toFixed(2)}); } }
 }
 
 function startReload(){
@@ -2846,6 +2898,19 @@ function startReload(){
   player.reloading=true; player.reloadEnd=performance.now()+w.reload;
 }
 
+// Co-op: a zombie should chase whichever PLAYER is closest — the host's own player OR any
+// connected teammate (peer). Returns {x,y,z,peer} where peer is null for the local host player
+// or the peer's network id for a teammate (so the host can send them the hit).
+function nearestPlayerTo(x,z){
+  let best=null, bd=Infinity;
+  if(player && player.alive){ const d=(x-player.pos.x)**2+(z-player.pos.z)**2;
+    best={x:player.pos.x,y:player.pos.y,z:player.pos.z,peer:null}; bd=d; }
+  if(net.online && net.isHost()){
+    for(const [cid,pr] of net.peers){ const d=(x-pr.tx)**2+(z-pr.tz)**2;
+      if(d<bd){ bd=d; best={x:pr.tx,y:pr.ty,z:pr.tz,peer:cid}; } }
+  }
+  return best;
+}
 // bot shooting (hitscan with LOS)
 // True if the bot has a clear line of sight to the player (blocked by walls/structures).
 function botHasLOS(b){
@@ -3548,9 +3613,10 @@ function update(dt){
     if(!b.alive) continue;
     if(b.hitFlash>0){ b.hitFlash-=dt*60; }
     b.atkT-=dt; b.wobble+=dt*6;
-    const dxp=player.pos.x-b.x, dzp=player.pos.z-b.z;
+    const tgt=nearestPlayerTo(b.x,b.z) || {x:b.x,y:0,z:b.z,peer:null};
+    const dxp=tgt.x-b.x, dzp=tgt.z-b.z;
     const dp=Math.hypot(dxp,dzp);
-    const a=Math.atan2(dzp,dxp);       // desired heading: toward the player
+    const a=Math.atan2(dzp,dxp);       // desired heading: toward the nearest player (host OR teammate)
     const br=0.6, step=b.speed*dt;
     // gather only nearby obstacles once (cheap steering around them)
     const nearW=[], nearS=[];
@@ -3593,11 +3659,17 @@ function update(dt){
     b.y=mountainHeightAt(b.x,b.z);        // zombies climb the mountain too
     b.mesh.position.set(b.x,b.y,b.z);
     b.mesh.rotation.y=-a+Math.PI/2 + Math.sin(b.wobble)*0.12;
-    // attack the player when adjacent — or bash the car if the player is driving
-    const atkRange = player.vehicle? player.vehicle.colR+1.1 : (b.boss?2.9:1.9);
-    if(dp<atkRange && Math.abs(b.y-player.pos.y)<3 && player.alive && b.atkT<=0){ b.atkT=0.9;
+    // attack the nearest player when adjacent — or bash the car if the local host is driving
+    const localInCar = (tgt.peer===null && player.vehicle);
+    const atkRange = localInCar? player.vehicle.colR+1.1 : (b.boss?2.9:1.9);
+    if(dp<atkRange && Math.abs(b.y-tgt.y)<3 && b.atkT<=0){ b.atkT=0.9;
       if(b.boss) b.lunge=1;                               // big swing animation
-      if(player.vehicle) damageCar(player.vehicle, b.dmg*0.9); else damagePlayer(b.dmg,false); }
+      if(tgt.peer===null){                                // hitting the local host player
+        if(player.alive){ if(player.vehicle) damageCar(player.vehicle, b.dmg*0.9); else damagePlayer(b.dmg,false); }
+      } else {                                            // hitting a teammate — tell their client to take damage
+        net.send({t:"zdmg", to:tgt.peer, dmg:Math.round(b.dmg)});
+      }
+    }
     // spike traps hurt zombies on the same level
     for(const sp of spikeTraps){ if(Math.abs(b.x-sp.x)<sp.r && Math.abs(b.z-sp.z)<sp.r && Math.abs(b.y-(sp.y||0))<2){
       b.hp-=55*dt; b.hitFlash=3; if(b.hp<=0){ killBot(b,false); break; } } }
@@ -3866,6 +3938,7 @@ function startGame(){
 
   initCycle(); clockT=70;              // wake up in the evening — night falls soon
   if(net.online && !net.peer) net.connect();   // join the co-op session (P2P)
+  matchRand = mulberry32(MATCH_SEED);  // reset the deterministic spawn stream (same layout for all players)
   spawnChests(); spawnCars(); spawnCrashLoot();   // crash sites are loot hotspots
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
   setObjective(null);
