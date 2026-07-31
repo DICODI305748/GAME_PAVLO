@@ -232,6 +232,14 @@
   <button class="play" id="craftClose" style="margin-top:18px">Закрити (E / Esc)</button>
 </div>
 
+<!-- Truck storage -->
+<div class="overlay hidden" id="truckScreen">
+  <h1 style="font-size:clamp(28px,5vw,48px)">📦 Багажник фури</h1>
+  <div class="tag">Склади ресурси у фуру — вони не пропадуть після смерті</div>
+  <div id="truckGrid"></div>
+  <button class="play" id="truckClose" style="margin-top:18px">Закрити (Esc)</button>
+</div>
+
 <div id="loading">ЗАВАНТАЖЕННЯ 3D РУШІЯ…</div>
 
 <!-- Local Three.js (works fully offline). CDN kept only as a fallback. -->
@@ -1395,7 +1403,7 @@ function makePlayer(){
     hp:100, maxHp:100, shield:0, maxShield:100,
     mats:50, stone:0, metal:0, fuel:0, alive:true,   // wood 🪵 build · stone 🪨 & metal 🔩 upgrade · fuel ⛽ for cars
     inv:{pickaxe:{melee:true}, axe:{melee:true}}, // start with only tools — craft guns at the bench
-    vehicle:null,
+    vehicle:null, spikeKit:0,   // crafted truck-spike kits waiting to be bolted on (H)
     cur:"axe", lastShot:0, reloading:false, reloadEnd:0,
     hitFlash:0,
   };
@@ -2107,6 +2115,10 @@ function resolveHoriz(px,pz){
       if(s.col) check(s.col.minx,s.col.maxx,s.col.minz,s.col.maxz,s.col.base,s.col.top);
       if(s.cols) for(const c of s.cols) check(c.minx,c.maxx,c.minz,c.maxz,c.base,c.top);
     }
+    // parked vehicles are solid — you can't walk through the truck
+    if(typeof cars!=="undefined") for(const car of cars){ if(car===player.vehicle) continue;
+      const dx=px-car.x, dz=pz-car.z, d2=dx*dx+dz*dz, rr=PLAYER_R+car.colR;
+      if(d2<rr*rr && d2>1e-7){ const d=Math.sqrt(d2); const push=rr-d; px+=dx/d*push; pz+=dz/d*push; } }
   }
   return [px,pz];
 }
@@ -2431,10 +2443,38 @@ const CARVM={
       g.scene.position.set(-c.x, -box.min.y, -c.z); CAR_MODELS[key]=wrap;
       // if cars of this variant already spawned as fallback boxes (model loaded late), swap in the real model
       for(const car of cars){ if(car.variant===key){ dynGroup.remove(car.mesh);
-        car.mesh=makeCar(key,car.x,car.z); car.mesh.rotation.y=car.heading; dynGroup.add(car.mesh); } }
+        car.mesh=makeCar(key,car.x,car.z); car.mesh.rotation.y=car.heading; dynGroup.add(car.mesh);
+        if(car.spiked) attachSpikes(car); } }   // keep the ram-spikes on the swapped-in model
     }, undefined, e=>console.warn("car "+key+" failed", e));
   }
 })();
+// ---- Truck ram-spikes model (bolted to the front bumper) ----
+let SPIKE_MODEL=null;
+(function loadSpikes(){
+  if(typeof THREE.GLTFLoader==="undefined") return;
+  new THREE.GLTFLoader().load("models/spikes.glb", g=>{
+    g.scene.traverse(o=>{ if(o.isMesh){ o.castShadow=true; const ms=Array.isArray(o.material)?o.material:[o.material];
+      for(const m of ms){ if(m){ if("metalness" in m) m.metalness=Math.min(m.metalness||0,0.6); m.needsUpdate=true; } } } });
+    const wrap=new THREE.Group(); wrap.add(g.scene); SPIKE_MODEL=wrap;
+    for(const car of cars) if(car.spiked) attachSpikes(car);   // re-attach if any truck already has them
+  }, undefined, e=>console.warn("spikes failed", e));
+})();
+// bolt a spike ram onto the front of a car (mesh-local +Z is forward)
+function attachSpikes(car){
+  if(!car.mesh) return;
+  const old=car.mesh.getObjectByName("__spikes"); if(old) car.mesh.remove(old);
+  const vm=CARVM[car.variant];
+  let s;
+  if(SPIKE_MODEL){ s=SPIKE_MODEL.clone(true);
+    const box=new THREE.Box3().setFromObject(s), sz=new THREE.Vector3(); box.getSize(sz);
+    const width=(vm.colR||2)*1.7;                       // span the front of the vehicle
+    s.scale.setScalar(width/(Math.max(sz.x,sz.z)||1));
+  } else {                                              // fallback: a row of metal cones
+    s=new THREE.Group(); const mat=new THREE.MeshStandardMaterial({color:0xb0b4bc,metalness:.7,roughness:.35});
+    for(let i=-2;i<=2;i++){ const c=new THREE.Mesh(new THREE.ConeGeometry(0.22,0.9,6),mat); c.rotation.x=Math.PI/2; c.position.set(i*0.6,0,0); s.add(c); }
+  }
+  s.name="__spikes"; s.position.set(0,0.7,(vm.len||6)*0.5*0.92); car.mesh.add(s);
+}
 function makeCarProc(x,z){   // fallback if a model won't load
   const g=new THREE.Group();
   const body=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.9,4.6),new THREE.MeshStandardMaterial({color:0x8a3b2e,roughness:.6,metalness:.4}));
@@ -2454,13 +2494,14 @@ function spawnCars(){
   for(let i=0;i<spots.length;i++){ const [x,z]=spots[i], v=variants[i%variants.length], vm=CARVM[v];
     const mesh=makeCar(v,x,z); dynGroup.add(mesh);
     cars.push({mesh, x, z, heading:rand(0,6.28), speed:0, variant:v, hp:vm.hp, maxHp:vm.hp,
-      fuel:Math.round(vm.maxFuel*rand(0.15,0.55)), maxFuel:vm.maxFuel, colR:vm.colR}); }
+      fuel:Math.round(vm.maxFuel*rand(0.15,0.55)), maxFuel:vm.maxFuel, colR:vm.colR,
+      store:{mats:0,stone:0,metal:0,fuel:0}, spiked:false}); }   // storage boot + ram-spikes flag
 }
 function updateCarHud(){
   const car=player.vehicle; if(!car) return;
   document.getElementById("carHpFill").style.width=clamp(car.hp/car.maxHp*100,0,100)+"%";
   document.getElementById("carFuelFill").style.width=clamp(car.fuel/car.maxFuel*100,0,100)+"%";
-  document.getElementById("carHint").textContent="G — заправити (⛽ "+player.fuel+" в запасі) · F — вийти";
+  document.getElementById("carHint").textContent="G — заправити (⛽ "+player.fuel+") · T — багажник · H — шипи · F — вийти";
 }
 function refuelCar(){
   const car=player.vehicle; if(!car) return;
@@ -2521,12 +2562,17 @@ function updateVehicle(dt){
   const hitBox=(minx,maxx,minz,maxz)=>{ const qx=clamp(nx,minx,maxx),qz=clamp(nz,minz,maxz); return (nx-qx)*(nx-qx)+(nz-qz)*(nz-qz)<R*R; };
   for(const c of worldColliders){ if(hitBox(c.minx,c.maxx,c.minz,c.maxz)){blocked=true;break;} }
   if(!blocked) for(const s of structures){ if(s.col && hitBox(s.col.minx,s.col.maxx,s.col.minz,s.col.maxz)){blocked=true;break;} }
+  if(!blocked) for(const oc of cars){ if(oc===car) continue;          // trucks are solid to each other
+    const rr=car.colR+oc.colR; if((nx-oc.x)*(nx-oc.x)+(nz-oc.z)*(nz-oc.z)<rr*rr){blocked=true;break;} }
   if(blocked){ const impact=Math.abs(car.speed);
     if(impact>15){ burst(car.x+fx*2,1.2,car.z+fz*2,0xffaa44,6); damageCar(car,(impact-13)*1.5); }
     car.speed*=-0.25;
     if(!player.vehicle) return;                            // car exploded from the crash
   } else { car.x=clamp(nx,-WORLD+3,WORLD-3); car.z=clamp(nz,-WORLD+3,WORLD-3); }
-  for(const b of bots){ if(b.alive && Math.hypot(b.x-car.x,b.z-car.z)<car.colR+0.7 && Math.abs(car.speed)>10){ b.hp-=60*dt*Math.abs(car.speed)/20; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } }
+  for(const b of bots){ if(!b.alive) continue;
+    if(Math.hypot(b.x-car.x,b.z-car.z)<car.colR+(car.spiked?1.1:0.7)){
+      if(car.spiked && Math.abs(car.speed)>3){ b.hp=0; burst(b.x,1,b.z,0xcc2222,12); killBot(b,false); }   // ram-spikes: instant kill
+      else if(Math.abs(car.speed)>10){ b.hp-=60*dt*Math.abs(car.speed)/20; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } } }
   car.mesh.position.set(car.x,0,car.z); car.mesh.rotation.y=car.heading;
   player.pos.set(car.x,0,car.z); player.yaw=car.heading+Math.PI;
   // chase camera: behind & above the car, looking ahead (never inside the truck)
@@ -2645,11 +2691,14 @@ addEventListener("keydown",e=>{
   const c=e.code;
   if(state==="cutscene"){ if(c==="Space"||c==="Enter"||c==="Escape"||c==="KeyE") finishCutscene(); return; }  // skip intro
   if(crafting){ if(c==="Escape"||c==="KeyE") closeCraft(); return; }   // craft menu open: freeze game keys
+  if(truckStoring){ if(c==="Escape"||c==="KeyT") closeTruckStore(); return; }   // storage open: freeze game keys
   if(c==="KeyB"){ if(!player.vehicle){ buildMode=!buildMode; updateModeTag(); } }
   else if(c==="KeyR"){ startReload(); }
   else if(c==="KeyE"){ if(nearTower()){ sendSignal(); } else { const dr=nearDoor(); if(nearBench()) openCraft(); else if(dr) toggleDoor(dr); else tryOpenChest(); } }
   else if(c==="KeyF"){ toggleVehicle(); }
   else if(c==="KeyG"){ if(player.vehicle) refuelCar(); }
+  else if(c==="KeyT"){ truckStoreKey(); }        // open the truck stash
+  else if(c==="KeyH"){ installSpikes(); }        // bolt crafted spikes onto the truck
   else if(c==="KeyU"){ if(buildMode) upgradeAimed(); }
   else if(c==="KeyM"){ toggleMusic(); }
   else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
@@ -2748,6 +2797,74 @@ function buildCraftGrid(){
     `<div class="ccost">🔩${fr.m}</div><button class="cbtn">Скрафтити</button>`;
   fd.querySelector(".cbtn").addEventListener("click",craftFuel);
   grid.appendChild(fd);
+  // 🔱 ram-spikes for the truck — bolt on with H near a vehicle
+  const kr=SPIKE_CRAFT, kcan=player.mats>=kr.w && player.stone>=kr.s && player.metal>=kr.m;
+  const kd=document.createElement("div"); kd.className="craftItem"+(kcan?"":" cant");
+  kd.innerHTML=`<div class="cname">🔱 Шипи для фури${player.spikeKit>0?" ×"+player.spikeKit:""}</div>`+
+    `<div class="ccost">🪵${kr.w} 🪨${kr.s} 🔩${kr.m}</div><button class="cbtn">Скрафтити</button>`;
+  kd.querySelector(".cbtn").addEventListener("click",craftSpikes);
+  grid.appendChild(kd);
+}
+const SPIKE_CRAFT={w:20, s:20, m:70};   // one ram-spike kit
+function craftSpikes(){
+  const r=SPIKE_CRAFT;
+  if(player.mats<r.w||player.stone<r.s||player.metal<r.m){ toast("Треба 🪵"+r.w+" 🪨"+r.s+" 🔩"+r.m); return; }
+  player.mats-=r.w; player.stone-=r.s; player.metal-=r.m; player.spikeKit++;
+  playBlip(600,0.1); toast("🔱 Шипи готові! Сядь/підійди до фури і тисни H, щоб встановити");
+  buildCraftGrid(); updateHUD();
+}
+// bolt a crafted spike kit onto the truck you're in / standing next to (H)
+function installSpikes(){
+  if(player.spikeKit<=0){ toast("Спершу скрафти 🔱 шипи на верстаку"); return; }
+  let car=player.vehicle;
+  if(!car){ let bd=6.5; for(const c of cars){ const d=Math.hypot(c.x-player.pos.x,c.z-player.pos.z); if(d<bd){bd=d;car=c;} } }
+  if(!car){ toast("Немає машини поруч (H біля фури)"); return; }
+  if(car.spiked){ toast("На цій машині вже є шипи"); return; }
+  car.spiked=true; player.spikeKit--; attachSpikes(car);
+  playBlip(680,0.12); toast("🔱 Шипи встановлено! Тепер фура давить зомбі на швидкості");
+}
+
+// ---- Truck storage (a stash that survives your death) ----
+let truckStoring=false, storeCar=null;
+const STORE_RES=[["mats","🪵 Дерево"],["stone","🪨 Камінь"],["metal","🔩 Метал"],["fuel","⛽ Паливо"]];
+function truckStoreKey(){
+  let car=player.vehicle;
+  if(!car){ let bd=6.5; for(const c of cars){ const d=Math.hypot(c.x-player.pos.x,c.z-player.pos.z); if(d<bd){bd=d;car=c;} } }
+  if(car) openTruckStore(car); else toast("Немає машини поруч (T біля фури)");
+}
+function openTruckStore(car){
+  storeCar=car; truckStoring=true; mouseDown=false;
+  document.exitPointerLock && document.exitPointerLock();
+  buildTruckGrid();
+  document.getElementById("truckScreen").classList.remove("hidden");
+}
+function closeTruckStore(){
+  truckStoring=false; storeCar=null;
+  document.getElementById("truckScreen").classList.add("hidden");
+  if(running && !player.vehicle) renderer.domElement.requestPointerLock();
+}
+function buildTruckGrid(){
+  const grid=document.getElementById("truckGrid"); grid.innerHTML="";
+  for(const [k,label] of STORE_RES){
+    const you=Math.floor(player[k]||0), truck=Math.floor((storeCar.store&&storeCar.store[k])||0);
+    const d=document.createElement("div"); d.className="craftItem";
+    d.innerHTML=`<div class="cname">${label}</div>`+
+      `<div class="ccost">Ти: ${you} · Фура: ${truck}</div>`+
+      `<div style="display:flex;gap:6px;margin-top:6px">`+
+        `<button class="cbtn dep" style="flex:1">Скласти ▶</button>`+
+        `<button class="cbtn wdr" style="flex:1">◀ Забрати</button></div>`;
+    d.querySelector(".dep").addEventListener("click",()=>moveRes(k,true));
+    d.querySelector(".wdr").addEventListener("click",()=>moveRes(k,false));
+    grid.appendChild(d);
+  }
+}
+function moveRes(k,toTruck){
+  if(!storeCar) return; if(!storeCar.store) storeCar.store={mats:0,stone:0,metal:0,fuel:0};
+  if(toTruck){ const amt=Math.floor(player[k]||0); if(amt<=0){ toast("Немає що складати"); return; }
+    player[k]-=amt; storeCar.store[k]=(storeCar.store[k]||0)+amt; }
+  else { const amt=Math.floor(storeCar.store[k]||0); if(amt<=0){ toast("У фурі порожньо"); return; }
+    storeCar.store[k]-=amt; player[k]=(player[k]||0)+amt; }
+  playBlip(500,0.07); buildTruckGrid(); updateHUD();
 }
 function craftFuel(){
   if(player.metal<FUEL_CRAFT.m){ toast("Треба "+FUEL_CRAFT.m+" 🔩 металу"); return; }
@@ -2952,7 +3069,7 @@ function update(dt){
   if(keys["KeyA"]||keys["ArrowLeft"]) mx-=1; if(keys["KeyD"]||keys["ArrowRight"]) mx+=1;
   // On a ladder, W/S climb instead of walking (until you reach the top).
   if(climbingBelowTop) mz=0;
-  if(crafting){ mx=0; mz=0; }   // frozen while the craft menu is open
+  if(crafting||truckStoring){ mx=0; mz=0; }   // frozen while a menu is open
   const yaw=player.yaw;
   // forward/right in world
   let wx=0,wz=0;
