@@ -417,38 +417,94 @@ function addBoxCollider(cx, cz, hx, hz){
 
 // Procedural grass ground texture (dark olive grass + sparse pale flecks/pebbles)
 function makeGrassTexture(){
-  const cv=document.createElement("canvas"); cv.width=cv.height=256; const c=cv.getContext("2d");
-  c.fillStyle="#47612b"; c.fillRect(0,0,256,256);                       // olive-green base
-  for(let i=0;i<5000;i++){                                              // fine grass-blade noise
-    const x=Math.random()*256, y=Math.random()*256, gg=70+Math.random()*70;
-    c.strokeStyle="rgba("+Math.floor(28+Math.random()*40)+","+Math.floor(gg)+","+Math.floor(22+Math.random()*30)+","+(0.25+Math.random()*0.4)+")";
-    c.lineWidth=Math.random()<0.6?1:2; const a=Math.random()*6.28, l=2+Math.random()*4;
+  const R=Math.random, cv=document.createElement("canvas"); cv.width=cv.height=256; const c=cv.getContext("2d");
+  c.fillStyle="#556e30"; c.fillRect(0,0,256,256);                       // olive lawn-green base
+  const greens=["#54722f","#5f7d38","#6a7f3c","#496628","#728a42","#3f5a26","#7d8340"];
+  for(let i=0;i<320;i++){                                               // soft mottled patches (incl. dry/olive clumps)
+    const x=R()*256, y=R()*256, r=6+R()*26; c.globalAlpha=0.10+R()*0.16;
+    c.fillStyle=greens[(R()*greens.length)|0];
+    c.beginPath(); c.ellipse(x,y,r,r*(0.6+R()*0.5),R()*6.28,0,6.28); c.fill();
+  }
+  c.globalAlpha=1;
+  for(let i=0;i<11000;i++){                                            // dense fine grass blades
+    const x=R()*256, y=R()*256, light=R()<0.42;
+    const g=light?(100+R()*55):(52+R()*44);
+    c.strokeStyle="rgba("+((light?48:26)+R()*26|0)+","+(g|0)+","+((light?38:20)+R()*20|0)+","+(0.3+R()*0.4)+")";
+    c.lineWidth=R()<0.7?1:2; const a=(R()<0.5?-1:1)*(1.2+R()*0.7), l=2+R()*5;   // mostly vertical-ish blades
     c.beginPath(); c.moveTo(x,y); c.lineTo(x+Math.cos(a)*l,y+Math.sin(a)*l); c.stroke();
   }
-  for(let i=0;i<75;i++){                                                // pale flecks / small pebbles
-    const x=Math.random()*256, y=Math.random()*256, r=1+Math.random()*2.6, v=195+Math.random()*50;
-    c.fillStyle="rgba("+v+","+v+","+(v-12)+","+(0.55+Math.random()*0.35)+")";
-    c.beginPath(); c.ellipse(x,y,r,r*0.72,Math.random()*6.28,0,6.28); c.fill();
+  for(let i=0;i<40;i++){                                                // sparse pale/yellow flecks
+    const x=R()*256, y=R()*256, r=0.8+R()*1.8, v=170+R()*55;
+    c.fillStyle="rgba("+(v|0)+","+((v+8)|0)+","+((v-40)|0)+","+(0.4+R()*0.3)+")";
+    c.beginPath(); c.ellipse(x,y,r,r*0.7,R()*6.28,0,6.28); c.fill();
   }
   const tex=new THREE.CanvasTexture(cv); tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
   tex.anisotropy=4; tex.repeat.set(WORLD/4, WORLD/4);   // ~8-unit tiles across the island
+  return tex;
+}
+// warm bumpy dune sand with fine grain + a few dark specks
+function makeSandTexture(){
+  const R=Math.random, cv=document.createElement("canvas"); cv.width=cv.height=256; const c=cv.getContext("2d");
+  c.fillStyle="#d9c08c"; c.fillRect(0,0,256,256);                       // warm tan base
+  for(let i=0;i<240;i++){                                               // soft dune undulation (light crests / dark troughs)
+    const x=R()*256, y=R()*256, r=10+R()*34, light=R()<0.5; c.globalAlpha=0.08+R()*0.12;
+    c.fillStyle=light?"#e8d3a2":"#c4a870";
+    c.beginPath(); c.ellipse(x,y,r,r*(0.4+R()*0.4),R()*6.28,0,6.28); c.fill();
+  }
+  c.globalAlpha=1;
+  for(let i=0;i<9000;i++){                                              // fine sand grain
+    const x=R()*256, y=R()*256, lift=R()<0.5, v=lift?(225+R()*25):(180+R()*25);
+    c.fillStyle="rgba("+(v|0)+","+((v-18)|0)+","+((v-70)|0)+","+(0.18+R()*0.22)+")";
+    c.fillRect(x,y,1,1);
+  }
+  for(let i=0;i<55;i++){                                                // scattered dark specks / tiny pebbles
+    const x=R()*256, y=R()*256, r=0.7+R()*1.4;
+    c.fillStyle="rgba("+((60+R()*40)|0)+","+((45+R()*30)|0)+","+((28+R()*22)|0)+","+(0.5+R()*0.4)+")";
+    c.beginPath(); c.ellipse(x,y,r,r*0.8,R()*6.28,0,6.28); c.fill();
+  }
+  const tex=new THREE.CanvasTexture(cv); tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
+  tex.anisotropy=4; tex.repeat.set(WORLD/10, WORLD/10);
+  return tex;
+}
+// blue sea with white foam ripples / wave crests
+function makeWaterTexture(){
+  const R=Math.random, cv=document.createElement("canvas"); cv.width=cv.height=256; const c=cv.getContext("2d");
+  c.fillStyle="#337fbe"; c.fillRect(0,0,256,256);                       // medium sea-blue base
+  for(let i=0;i<170;i++){                                               // darker troughs (wavy horizontal streaks)
+    const y=R()*256, x=R()*256, w=12+R()*40; c.globalAlpha=0.10+R()*0.18;
+    c.strokeStyle="#2867a0"; c.lineWidth=1+R()*2.5;
+    c.beginPath(); c.moveTo(x,y); c.bezierCurveTo(x+w*0.3,y-4-R()*4, x+w*0.7,y+4+R()*4, x+w,y); c.stroke();
+  }
+  for(let i=0;i<150;i++){                                               // light-blue ripple crests
+    const y=R()*256, x=R()*256, w=10+R()*36; c.globalAlpha=0.14+R()*0.22;
+    c.strokeStyle=R()<0.35?"#e6f2fb":"#8fbfe4"; c.lineWidth=0.8+R()*1.8;
+    c.beginPath(); c.moveTo(x,y); c.bezierCurveTo(x+w*0.3,y-3-R()*4, x+w*0.7,y+3+R()*4, x+w,y); c.stroke();
+  }
+  c.globalAlpha=1;
+  for(let i=0;i<90;i++){                                                // foam sparkle flecks
+    const x=R()*256, y=R()*256, r=0.6+R()*1.3;
+    c.fillStyle="rgba(235,245,252,"+(0.3+R()*0.4)+")";
+    c.beginPath(); c.ellipse(x,y,r,r*0.7,R()*6.28,0,6.28); c.fill();
+  }
+  const tex=new THREE.CanvasTexture(cv); tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
+  tex.anisotropy=4; tex.repeat.set(WORLD/8, WORLD/8);
   return tex;
 }
 // ---- Island: round grassy landmass + sandy beach ring + surrounding ocean ----
 {
   // ocean — a huge plane under everything, fades into the fog at the horizon
   const sea = new THREE.Mesh(new THREE.PlaneGeometry(WORLD*3, WORLD*3),
-    new THREE.MeshStandardMaterial({color:0x2a6cb0, roughness:.45, metalness:.05}));
+    new THREE.MeshStandardMaterial({map:makeWaterTexture(), color:0xbfd8ee, roughness:.5, metalness:.08}));
   sea.rotation.x=-Math.PI/2; sea.position.y=-1.6; staticGroup.add(sea);
 
   // sandy beach ring, a touch larger than the island
   const beach = new THREE.Mesh(new THREE.CircleGeometry(WORLD*1.06, 80),
-    new THREE.MeshStandardMaterial({color:0xd8c98a, roughness:1}));
+    new THREE.MeshStandardMaterial({map:makeSandTexture(), color:0xffffff, roughness:1}));
   beach.rotation.x=-Math.PI/2; beach.position.y=-0.12; beach.receiveShadow=true; staticGroup.add(beach);
 
   // the island itself — grassy texture
   const g = new THREE.Mesh(new THREE.CircleGeometry(WORLD, 80),
-    new THREE.MeshStandardMaterial({map:makeGrassTexture(), color:0xcfe0b0, roughness:1}));
+    new THREE.MeshStandardMaterial({map:makeGrassTexture(), color:0xffffff, roughness:1}));
   g.rotation.x=-Math.PI/2; g.receiveShadow=true; staticGroup.add(g); bulletMeshes.push(g);
 }
 
