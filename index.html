@@ -285,6 +285,9 @@ if (typeof THREE === "undefined") {
 <script src="GLTFLoader.js"></script>
 <!-- SkeletonUtils: correctly clone rigged/animated models (the walking zombie). -->
 <script src="SkeletonUtils.js"></script>
+<!-- fflate + FBXLoader: load the rigged, animated soldier avatar (Mixamo .fbx). -->
+<script src="fflate.min.js"></script>
+<script src="FBXLoader.js"></script>
 <script>
 (() => {
 "use strict";
@@ -1491,12 +1494,16 @@ const net = {
     this.sendT-=dt;
     if(this.sendT<=0){ this.sendT=0.08;
       this.send({t:"pos", x:+player.pos.x.toFixed(2), y:+player.pos.y.toFixed(2), z:+player.pos.z.toFixed(2), yaw:+player.yaw.toFixed(2)}); }
-    // smooth remote avatars
+    // smooth remote avatars + drive their walk/idle animation
     for(const pr of this.peers.values()){
+      const mv=Math.hypot(pr.tx-pr.mesh.position.x, pr.tz-pr.mesh.position.z);   // how far behind the target we are ~ speed
       pr.mesh.position.x += (pr.tx-pr.mesh.position.x)*Math.min(1,dt*12);
       pr.mesh.position.y += (pr.ty-pr.mesh.position.y)*Math.min(1,dt*12);
       pr.mesh.position.z += (pr.tz-pr.mesh.position.z)*Math.min(1,dt*12);
-      pr.mesh.rotation.y += (pr.yaw-pr.mesh.rotation.y)*Math.min(1,dt*12);
+      const yTarget = pr.yaw + (pr.mesh.userData.yawOff||0);
+      pr.mesh.rotation.y += (yTarget-pr.mesh.rotation.y)*Math.min(1,dt*12);
+      setAvatarAnim(pr.mesh, mv>0.05 ? "run" : "idle");
+      if(pr.mesh.userData.mixer) pr.mesh.userData.mixer.update(dt);
     }
     // host broadcasts zombies + day/night ~7/s
     if(this.isHost()){
@@ -1514,13 +1521,69 @@ const net = {
   },
 };
 function netStatus(s){ const el=document.getElementById("netStatus"); if(el) el.textContent="🌐 "+s; }
+// ---- Rigged, animated teammate avatar (Mixamo .fbx) ----
+let SOLDIER_RIG=null;                  // base rigged character (skinned mesh + skeleton), scaled to game size
+const AVATAR_CLIPS={};                 // name -> AnimationClip (idle/run/shoot/jump), root-motion stripped
+const AVATAR_MIXERS=[];                // active mixers to advance each frame
+// strip the hips TRANSLATION track so the character animates IN PLACE at its networked position
+function stripRootMotion(clip){
+  if(!clip) return clip;
+  clip.tracks = clip.tracks.filter(t=>!(/Hips?\.position$/i.test(t.name) || /:Hips\.position$/i.test(t.name)));
+  return clip;
+}
+function loadAvatarClip(url,name){
+  if(typeof THREE.FBXLoader==="undefined") return;
+  try{ new THREE.FBXLoader().load(url, o=>{ if(o.animations&&o.animations[0]){ o.animations[0].name=name; AVATAR_CLIPS[name]=stripRootMotion(o.animations[0]); } }, undefined, ()=>{}); }catch(e){}
+}
+function loadAvatarRig(){
+  if(typeof THREE.FBXLoader==="undefined") return;
+  try{
+    new THREE.FBXLoader().load("anims/gunplay.fbx", base=>{
+      const box=new THREE.Box3().setFromObject(base), sz=new THREE.Vector3(); box.getSize(sz);
+      const s=1.95/(sz.y||180); base.scale.setScalar(s);   // Mixamo is ~180cm -> ~1.95 game units tall
+      // recolour the bare Mixamo mesh into a dark tactical soldier
+      const soldierMat=new THREE.MeshStandardMaterial({color:0x39432f,roughness:.92,metalness:.05,skinning:true});
+      const gearMat=new THREE.MeshStandardMaterial({color:0x20242a,roughness:.8,metalness:.2,skinning:true});
+      let mi=0; base.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; o.material=(mi++%2? gearMat:soldierMat); } });
+      base.updateMatrixWorld(true);
+      const fb=new THREE.Box3().setFromObject(base); base.position.y -= fb.min.y;   // drop feet to y=0
+      if(base.animations&&base.animations[0]){ base.animations[0].name="idle"; AVATAR_CLIPS.idle=stripRootMotion(base.animations[0]); }
+      SOLDIER_RIG=base;
+      loadAvatarClip("anims/run.fbx","run");
+      loadAvatarClip("anims/shoot.fbx","shoot");
+      loadAvatarClip("anims/jump.fbx","jump");
+    }, undefined, ()=>{});
+  }catch(e){}
+}
+if(ONLINE) loadAvatarRig();   // teammate avatars only appear in co-op — skip the ~7MB of .fbx in solo
 function makeAvatar(){
+  if(SOLDIER_RIG && THREE.SkeletonUtils && THREE.SkeletonUtils.clone){
+    const g=new THREE.Group();
+    const rig=THREE.SkeletonUtils.clone(SOLDIER_RIG); g.add(rig);
+    const mixer=new THREE.AnimationMixer(rig); const actions={};
+    for(const k in AVATAR_CLIPS){ if(AVATAR_CLIPS[k]) actions[k]=mixer.clipAction(AVATAR_CLIPS[k]); }
+    if(actions.idle){ actions.idle.play(); }
+    g.userData.mixer=mixer; g.userData.actions=actions; g.userData.anim="idle";
+    g.userData.yawOff=Math.PI;   // Mixamo faces +Z; flip so it faces the way it moves (game uses -Z forward)
+    AVATAR_MIXERS.push(mixer);
+    return g;
+  }
+  // fallback: simple code avatar (used until the .fbx rig finishes loading)
   const g=new THREE.Group();
-  const bodyMat=new THREE.MeshStandardMaterial({color:0x22c3ff,roughness:.6});
+  const bodyMat=new THREE.MeshStandardMaterial({color:0x39432f,roughness:.9});
   const body=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.48,1.5,10),bodyMat); body.position.y=1.0; body.castShadow=true; g.add(body);
-  const head=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,10),new THREE.MeshStandardMaterial({color:0xf1c9a5})); head.position.y=1.95; g.add(head);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,10),new THREE.MeshStandardMaterial({color:0x20242a})); head.position.y=1.95; g.add(head);
   const gun=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.2,0.7),new THREE.MeshStandardMaterial({color:0x22262f})); gun.position.set(0.35,1.3,-0.4); g.add(gun);
   return g;
+}
+// crossfade a teammate avatar to a named clip (idle/run/shoot/jump)
+function setAvatarAnim(mesh, name){
+  const a=mesh.userData&&mesh.userData.actions; if(!a) return;
+  if(mesh.userData.anim===name || !a[name]) return;
+  const prev=a[mesh.userData.anim];
+  a[name].reset().setEffectiveWeight(1).fadeIn(0.2).play();
+  if(prev) prev.fadeOut(0.2);
+  mesh.userData.anim=name;
 }
 // Client: reconcile zombies from a host snapshot.
 function applyZSnap(m){
