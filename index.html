@@ -869,10 +869,30 @@ function makeFurnaceMesh(){
     const wrap=new THREE.Group(); wrap.add(inner);
     PANDA_MODEL=wrap; PANDA_CLIP=(g.animations&&g.animations[0])||null;
   }, undefined, ()=>{});
-  let built=false; const buildOnce=()=>{ if(built)return; built=true; try{ buildBunker(); }catch(e){ console.warn("bunker build failed",e); } };
-  new THREE.GLTFLoader().load("models/bunker.glb", g=>{ BUNKER_MODEL=g.scene; buildOnce(); }, undefined, ()=>buildOnce());
-  setTimeout(buildOnce, 20000);   // fallback: build procedurally if the model stalls
+  try{ buildBunker(); }catch(e){ console.warn("bunker build failed",e); }   // procedural bunker (no model needed)
 })();
+// Parasite monster (rigged) + its Mixamo clips — used as the bunker FLESH BOSS.
+let PARASITE_MODEL=null; const PARASITE_CLIPS={};
+(function(){
+  if(typeof THREE.GLTFLoader==="undefined") return;
+  new THREE.GLTFLoader().load("models/parasite.glb", g=>{
+    g.scene.traverse(o=>{ if(o.isMesh){ o.frustumCulled=false; o.castShadow=false; } });
+    PARASITE_MODEL=g.scene;
+  }, undefined, ()=>{});
+  const pc=(url,name)=>fetch(url).then(r=>r.json()).then(j=>{ PARASITE_CLIPS[name]=THREE.AnimationClip.parse(j); }).catch(()=>{});
+  pc("anims/p_walk.clip.json","walk"); pc("anims/p_throw.clip.json","throw");
+  pc("anims/p_bite.clip.json","bite"); pc("anims/p_die.clip.json","die");
+})();
+// floating text label (canvas sprite) — used for the bunker "press E" prompt
+function makeTextSprite(text){
+  const cv=document.createElement("canvas"); cv.width=512; cv.height=96; const c=cv.getContext("2d");
+  c.font="bold 40px system-ui,Segoe UI,Arial"; c.textAlign="center"; c.textBaseline="middle";
+  c.lineWidth=8; c.strokeStyle="rgba(0,0,0,.85)"; c.strokeText(text,256,50);
+  c.fillStyle="#ffe08a"; c.fillText(text,256,50);
+  const tex=new THREE.CanvasTexture(cv);
+  const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,depthTest:false,transparent:true}));
+  spr.scale.set(8,1.5,1); spr.raycast=function(){}; return spr;
+}
 
 // Pre-built houses (loot landmarks) — real walls with a doorway + roof
 // Code-drawn house — kept as one of the 3 variants and the fallback if a model won't load.
@@ -2528,31 +2548,27 @@ function buildBunker(){
   const CONC =new THREE.MeshStandardMaterial({color:0x6b6f76,roughness:.96,metalness:.05,flatShading:true});
   const CONC2=new THREE.MeshStandardMaterial({color:0x51565d,roughness:.96,flatShading:true});
   const STEEL=new THREE.MeshStandardMaterial({color:0x3a3f47,roughness:.5,metalness:.65});
-  // ---- above-ground entrance ----
+  const CONClit=new THREE.MeshStandardMaterial({color:0x8b929c,roughness:.92,metalness:.05,flatShading:true});   // lighter, clearly-lit concrete
+  // ---- above-ground entrance: a big, obvious concrete bunker with a lit doorway ----
   const gy=mountainHeightAt(BUNKER_X,BUNKER_Z);   // (groundHeightAt needs `player`, which isn't ready at load)
   const e=new THREE.Group(); e.position.set(BUNKER_X,gy,BUNKER_Z);
-  if(BUNKER_MODEL){
-    const m=BUNKER_MODEL.clone(true);
-    const box=new THREE.Box3().setFromObject(m), sz=new THREE.Vector3(); box.getSize(sz);
-    const sc=13/(Math.max(sz.x,sz.z,sz.y)||1); m.scale.setScalar(sc);
-    m.updateMatrixWorld(true); const b2=new THREE.Box3().setFromObject(m); m.position.y-=b2.min.y;
-    m.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false; } });
-    e.add(m); e.userData.modelTop=(b2.max.y-b2.min.y);
-  } else {
-    const base=new THREE.Mesh(new THREE.BoxGeometry(7,3,7),CONC); base.position.y=1.2; base.castShadow=base.receiveShadow=true; e.add(base);
-    const rim=new THREE.Mesh(new THREE.CylinderGeometry(1.8,2.0,1.1,14),CONC2); rim.position.y=2.9; e.add(rim);
-    const hatch=new THREE.Mesh(new THREE.CylinderGeometry(1.55,1.55,0.35,14),STEEL); hatch.position.y=3.5; e.add(hatch);
-    const wheel=new THREE.Mesh(new THREE.TorusGeometry(0.7,0.12,8,16),STEEL); wheel.rotation.x=Math.PI/2; wheel.position.y=3.72; e.add(wheel);
-  }
-  // a small floating warning sign above the bunker so it's easy to spot
-  const signY=(e.userData.modelTop||4)+2.0;
-  for(const ry of [0, Math.PI/2]){   // two crossed planes so it's visible from any angle
-    const sign=new THREE.Mesh(new THREE.PlaneGeometry(1.8,0.8), new THREE.MeshStandardMaterial({color:0xffcc00,emissive:0x3a2c00,emissiveIntensity:.7,side:THREE.DoubleSide}));
-    sign.position.set(0,signY,0); sign.rotation.y=ry; e.add(sign);
-  }
-  const lamp=new THREE.PointLight(0xffd27a,0.9,18,2); lamp.position.set(0,signY,0); e.add(lamp);
+  const base=new THREE.Mesh(new THREE.BoxGeometry(12,4.2,10),CONClit); base.position.y=1.8; base.castShadow=base.receiveShadow=true; e.add(base);
+  const roof=new THREE.Mesh(new THREE.BoxGeometry(12.6,1.0,10.6),CONC2); roof.position.y=4.3; e.add(roof);
+  // entrance opening on the +Z front, with a steel frame and a dark doorway you can see into
+  const frame=new THREE.Mesh(new THREE.BoxGeometry(3.8,3.6,0.7),STEEL); frame.position.set(0,1.8,5.0); e.add(frame);
+  const doorway=new THREE.Mesh(new THREE.BoxGeometry(3.0,3.0,0.9), new THREE.MeshBasicMaterial({color:0x060b06})); doorway.position.set(0,1.5,5.15); e.add(doorway);
+  // green "enter here" glow at the threshold
+  const glow=new THREE.PointLight(0x66ff99,1.4,12,2); glow.position.set(0,1.8,5.6); e.add(glow);
+  const pad=new THREE.Mesh(new THREE.PlaneGeometry(3.0,2.2), new THREE.MeshBasicMaterial({color:0x66ff99,transparent:true,opacity:.5,side:THREE.DoubleSide}));
+  pad.rotation.x=-Math.PI/2; pad.position.set(0,0.06,6.2); e.add(pad);
+  // yellow warning sign over the door
+  const sign=new THREE.Mesh(new THREE.PlaneGeometry(4.2,1.1), new THREE.MeshStandardMaterial({color:0xffcc00,emissive:0x3a2c00,emissiveIntensity:.7,side:THREE.DoubleSide}));
+  sign.position.set(0,3.9,5.06); e.add(sign);
+  // floating prompt (always faces the camera)
+  const prompt=makeTextSprite("🚪  E — увійти в бункер"); prompt.position.set(0,6.6,0); e.add(prompt);
+  const lamp=new THREE.PointLight(0xffd27a,1.0,20,2); lamp.position.set(0,5.4,0); e.add(lamp);
   staticGroup.add(e); e.updateMatrixWorld(true);
-  addBoxCollider(BUNKER_X,BUNKER_Z,4.0,4.0);
+  addBoxCollider(BUNKER_X,BUNKER_Z,6.0,5.0);   // solid body; approach the +Z doorway and press E
   // ---- sealed underground arena (far off-map) ----
   const A=new THREE.Group(); A.position.set(ARENA_X,0,ARENA_Z);
   const R=ARENA_R, WH=16;
@@ -2578,6 +2594,25 @@ function buildBunker(){
 }
 function makeFleshBossMesh(){
   const g=new THREE.Group();
+  // uploaded rigged Parasite monster (animated) as the bunker boss
+  if(PARASITE_MODEL && THREE.SkeletonUtils && THREE.SkeletonUtils.clone){
+    const rig=THREE.SkeletonUtils.clone(PARASITE_MODEL);
+    const box=new THREE.Box3().setFromObject(rig), sz=new THREE.Vector3(); box.getSize(sz);
+    const s=6.8/(sz.y||2); rig.scale.setScalar(s); rig.updateMatrixWorld(true);
+    const fb=new THREE.Box3().setFromObject(rig); rig.position.y-=fb.min.y;
+    g.add(rig);
+    const mixer=new THREE.AnimationMixer(rig); const actions={};
+    for(const k in PARASITE_CLIPS){ if(PARASITE_CLIPS[k]) actions[k]=mixer.clipAction(PARASITE_CLIPS[k]); }
+    for(const k of ["throw","bite","die"]){ if(actions[k]){ actions[k].setLoop(THREE.LoopOnce,1); actions[k].clampWhenFinished=true; } }
+    if(actions.walk) actions.walk.play();
+    g.userData.mixer=mixer; g.userData.actions=actions; g.userData.anim="walk"; g.userData.lockUntil=0;
+    // boss health bar
+    const cv=document.createElement("canvas"); cv.width=96; cv.height=12; const tex=new THREE.CanvasTexture(cv);
+    const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,depthTest:false}));
+    spr.scale.set(7,0.8,1); spr.position.y=8.2; g.add(spr); spr.raycast=function(){};
+    g.userData.hbCanvas=cv; g.userData.hbTex=tex; g.userData.hbSpr=spr;
+    return g;
+  }
   const flesh =new THREE.MeshStandardMaterial({color:0x9a1f22,roughness:.85,emissive:0x2a0004,emissiveIntensity:.5,flatShading:true});
   const flesh2=new THREE.MeshStandardMaterial({color:0x6e1418,roughness:.9,flatShading:true});
   const body=new THREE.Mesh(new THREE.IcosahedronGeometry(3.0,1),flesh); body.position.y=3.4; body.castShadow=true; g.add(body);
@@ -2599,8 +2634,8 @@ function makeFleshBossMesh(){
 }
 function nearBunker(){
   if(!bunker) return false;
-  if(!player.inBunker) return Math.hypot(player.pos.x-bunker.x, player.pos.z-bunker.z)<6;
-  return Math.hypot(player.pos.x-bunker.exitX, player.pos.z-bunker.exitZ)<4.5;
+  if(!player.inBunker) return Math.hypot(player.pos.x-bunker.x, player.pos.z-bunker.z)<10;
+  return Math.hypot(player.pos.x-bunker.exitX, player.pos.z-bunker.exitZ)<5;
 }
 function toggleBunker(){ if(!player.inBunker) descendBunker(); else ascendBunker(); }
 function descendBunker(){
@@ -2650,6 +2685,11 @@ function throwFlesh(){
   fleshBalls.push({mesh:g, x:start.x, y:start.y, z:start.z, vx, vy, vz, life:4, spin:rand(2,6)});
   playBlip(140,0.12);
 }
+// crossfade the boss to a looping clip / play a one-shot (respects the one-shot lock)
+function bossSetLoop(mesh,name){ const ud=mesh.userData; if(!ud||!ud.actions||!ud.actions[name]||ud.anim===name||performance.now()<(ud.lockUntil||0)) return;
+  const prev=ud.actions[ud.anim]; ud.actions[name].reset().setEffectiveWeight(1).fadeIn(0.2).play(); if(prev)prev.fadeOut(0.2); ud.anim=name; }
+function bossPlayOnce(mesh,name,ms){ const ud=mesh.userData; const a=ud&&ud.actions&&ud.actions[name]; if(!a) return;
+  const prev=ud.actions[ud.anim]; if(prev)prev.fadeOut(0.1); a.reset().setEffectiveWeight(1).fadeIn(0.08).play(); ud.anim=name; ud.lockUntil=performance.now()+ms; }
 function updateFleshBoss(dt){
   const b=fleshBoss;
   // move + attack the local player (host authoritative for its own arena)
@@ -2661,8 +2701,9 @@ function updateFleshBoss(dt){
       if(Math.abs(nx-ARENA_X)<ARENA_R-3) b.x=nx; if(Math.abs(nz-ARENA_Z)<ARENA_R-3) b.z=nz; }
     b.mesh.position.set(b.x,0,b.z); b.mesh.rotation.y=-a+Math.PI/2;
     b.atkT-=dt; b.throwT-=dt;
-    if(dp<5.5 && b.atkT<=0){ b.atkT=1.1; if(player.alive) damagePlayer(b.dmg,false); }   // melee slam
-    if(b.throwT<=0 && player.alive){ b.throwT=rand(1.8,3.0); throwFlesh(); }              // lob flesh
+    if(dp<5.5 && b.atkT<=0){ b.atkT=1.1; bossPlayOnce(b.mesh,"bite",700); if(player.alive) damagePlayer(b.dmg,false); }   // neck-bite slam
+    if(b.throwT<=0 && player.alive){ b.throwT=rand(1.8,3.0); bossPlayOnce(b.mesh,"throw",800); throwFlesh(); }            // lob flesh
+    bossSetLoop(b.mesh,"walk");   // default shuffle (skipped while a one-shot is playing)
     drawHB(b);
   }
   // flesh projectiles
