@@ -617,6 +617,51 @@ function placeGrass(x,z,sc){
   staticGroup.add(g); g.updateMatrixWorld(true);
 }
 
+// ---- Jungle biome props: giant trees, bamboo clumps, dense undergrowth (shared low-poly mats) ----
+const J_TRUNK=new THREE.MeshStandardMaterial({color:0x5a4227,roughness:1});
+const J_LEAF =new THREE.MeshStandardMaterial({color:0x1f6a2a,roughness:1,flatShading:true});
+const J_LEAF2=new THREE.MeshStandardMaterial({color:0x2c8a38,roughness:1,flatShading:true});
+const J_BAMBOO=new THREE.MeshStandardMaterial({color:0x8fb84a,roughness:.9});
+const J_BUSH =new THREE.MeshStandardMaterial({color:0x276b2c,roughness:1,flatShading:true});
+const J_BUSH2=new THREE.MeshStandardMaterial({color:0x347d33,roughness:1,flatShading:true});
+let jungleTreeCount=0, bambooCount=0, bushCount=0;
+const JTREE_CAP=340, BAMBOO_CAP=420, BUSH_CAP=900;
+function makeGiantTree(x,z){
+  const g=new THREE.Group();
+  const h=wr(17,27);
+  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.65,1.25,h,7), J_TRUNK);
+  trunk.position.y=h/2; trunk.castShadow=true; g.add(trunk);
+  // a couple of buttress roots for a jungle look
+  for(let i=0;i<3;i++){ const a=i/3*6.28; const r=new THREE.Mesh(new THREE.ConeGeometry(0.5,2.4,5), J_TRUNK);
+    r.position.set(Math.cos(a)*1.0,1.1,Math.sin(a)*1.0); r.rotation.z=Math.cos(a)*0.5; r.rotation.x=-Math.sin(a)*0.5; g.add(r); }
+  // big leafy canopy
+  for(let i=0;i<5;i++){ const rr=wr(4.5,7.5); const leaf=new THREE.Mesh(new THREE.IcosahedronGeometry(rr,0), (i&1)?J_LEAF:J_LEAF2);
+    leaf.position.set(wr(-3.5,3.5), h-3+wr(-1,4), wr(-3.5,3.5)); leaf.castShadow=true; g.add(leaf); }
+  g.position.set(x,0,z); g.scale.setScalar(wr(0.9,1.5)); g.rotation.y=wr(0,6.28);
+  staticGroup.add(g); trunk.updateMatrixWorld();
+  bulletMeshes.push(trunk);
+  const col=addBoxCollider(x,z,1.3,1.3);
+  trunk.userData.harvest="wood"; trunk.userData.hp=7; trunk.userData.rootGroup=g; trunk.userData.col=col;
+}
+function makeBamboo(x,z){
+  const g=new THREE.Group();
+  const n=3+((wrand()*4)|0);
+  for(let i=0;i<n;i++){ const hh=wr(7,13), r=0.16;
+    const st=new THREE.Mesh(new THREE.CylinderGeometry(r,r*1.15,hh,6), J_BAMBOO);
+    st.position.set(wr(-1.3,1.3), hh/2, wr(-1.3,1.3)); st.rotation.z=wr(-0.09,0.09); st.rotation.x=wr(-0.09,0.09);
+    st.castShadow=true; g.add(st); }
+  g.position.set(x,0,z); staticGroup.add(g);
+  const mesh=g.children[0]; mesh.updateMatrixWorld(); bulletMeshes.push(mesh);
+  const col=addBoxCollider(x,z,1.0,1.0);
+  mesh.userData.harvest="wood"; mesh.userData.hp=4; mesh.userData.rootGroup=g; mesh.userData.col=col;
+}
+function makeBush(x,z){
+  const g=new THREE.Group();
+  for(let i=0;i<3;i++){ const rr=wr(0.7,1.6); const b=new THREE.Mesh(new THREE.IcosahedronGeometry(rr,0), (i&1)?J_BUSH:J_BUSH2);
+    b.position.set(wr(-1.1,1.1), rr*0.55, wr(-1.1,1.1)); b.castShadow=true; g.add(b); }
+  g.position.set(x,0,z); g.rotation.y=wr(0,6.28); g.scale.setScalar(wr(0.8,1.5)); staticGroup.add(g);
+}
+
 // Trees — two kinds for variety
 function makeTree(x,z,r){
   if(TREE_MODEL){ const sc=0.8+r()*0.7; placeProp(TREE_MODEL,x,z,sc,"wood",3,0.7*sc); return; }
@@ -684,6 +729,16 @@ function placeVegetation(){
       const rad=Math.hypot(jx,jz);
       if(rad<MTN_R+40) continue;                  // keep the central mountain clear
       if(rad>WORLD-16) continue;                  // keep trees/rocks on land, not in the sea
+      // ---- Jungle biome: giant trees, bamboo clumps and DENSE undergrowth ----
+      const jf=jungleFactor(jx,jz);
+      if(jf>0.12){
+        if(jungleTreeCount<JTREE_CAP && wrand() < 0.20+jf*0.30){ makeGiantTree(jx,jz); jungleTreeCount++; }
+        else if(bambooCount<BAMBOO_CAP && wrand() < 0.30+jf*0.25){ makeBamboo(jx,jz); bambooCount++; }
+        // lots of thickets/bushes filling the floor
+        for(let k=0;k<3;k++){ if(bushCount<BUSH_CAP && wrand() < 0.28+jf*0.35){
+          makeBush(jx+wr(-7,7), jz+wr(-7,7)); bushCount++; } }
+        continue;   // no normal trees/rocks inside the jungle
+      }
       // trees grow ALL OVER the island (thin everywhere, denser in the woods)
       if(treeCount<TREE_CAP && wrand() < 0.10+n*0.13){
         makeTree(jx,jz,wrand); treeCount++;
