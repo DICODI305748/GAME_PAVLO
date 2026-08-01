@@ -186,6 +186,7 @@
       <b>E</b><span>Скриня / стіл крафта / <b>відчинити-зачинити двері</b> · сокирою бий дерева, кіркою — каміння/руду</span>
       <b>F</b><span>Машина 🚗 · <b>R</b> перезарядка · збий вертоліт → базука 🚀</span>
       <b>M</b><span>Відкрити карту на весь екран 🗺️ · музика — кнопка 🎵 зліва</span>
+      <b>🌴</b><span>Дослідь <b>джунглі</b> (гіганські дерева, бамбук), стережись <b>панди-зомбі 🐼</b>. У будинках можуть ховатись зомбі. Знайди <b>секретний бункер</b> (E) — там М'ЯСНИЙ БОС 🩸</span>
     </div>
     <p style="margin-top:12px;color:#9fb0e0;font-size:13px">Натисни кнопку, потім клікни по екрану щоб захопити мишу. <b>Esc</b> — відпустити.</p>
     <p style="margin-top:8px;color:#6b7aa8;font-size:11px">🎵 Музика: Kaelin Bougneit — «Empty World», «Meteor Strike» (CC-BY-SA 4.0), <a href="https://kaelinbougneit.bandcamp.com/" target="_blank" style="color:#8fa0d0">bandcamp</a></p>
@@ -1608,7 +1609,7 @@ const net = {
     if(this.isHost()){
       this.snapT-=dt;
       if(this.snapT<=0){ this.snapT=0.14;
-        const zs=[]; for(const b of bots){ if(b.alive) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0, b.panda?1:0]); }
+        const zs=[]; for(const b of bots){ if(b.alive && !b.flesh) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0, b.panda?1:0]); }
         this.send({t:"zsnap", z:zs, phase, night:nightNum, clock:Math.round(clockT)});
       }
     } else {
@@ -1747,6 +1748,7 @@ let ghost=null;
 function clearGroup(){
   while(dynGroup.children.length) dynGroup.remove(dynGroup.children[0]);
   structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[]; torches=[]; spikeTraps=[]; benches=[];
+  if(typeof fleshBoss!=="undefined"){ fleshBoss=null; if(fleshBalls) fleshBalls.length=0; }
   if(typeof net!=="undefined" && net.peers) net.peers.clear();   // avatars were in dynGroup
 }
 
@@ -1764,6 +1766,7 @@ function makePlayer(){
     vehicle:null, spikeKit:0,   // crafted truck-spike kits waiting to be bolted on (H)
     cur:"axe", lastShot:0, reloading:false, reloadEnd:0,
     passenger:false,   // in co-op: true when riding a car someone else is driving
+    inBunker:false,    // true while down in the secret bunker arena (off-map)
     hitFlash:0,
   };
 }
@@ -2369,7 +2372,7 @@ function spawnWave(night){
   const spd = 2.6 + Math.min(4.0, night*0.35);           // faster each night
   // On the big island, spawn the horde in a ring AROUND the player so night stays
   // intense instead of zombies trekking in from a far coast.
-  const cx=(player&&player.pos)?player.pos.x:0, cz=(player&&player.pos)?player.pos.z:0;
+  const cx=(player&&player.pos&&!player.inBunker)?player.pos.x:0, cz=(player&&player.pos&&!player.inBunker)?player.pos.z:0;
   for(let i=0;i<count;i++){
     const ang=rand(0,Math.PI*2), r=rand(70,160);
     let x=cx+Math.cos(ang)*r, z=cz+Math.sin(ang)*r;
@@ -2442,6 +2445,152 @@ function spawnAmbientZombies(){
     spawnGuardZombie(x,z,{panda:true, aggroR:26});
   }
 }
+
+// ===================================================================
+//  Secret bunker (one per map) + underground FLESH BOSS
+// ===================================================================
+let bunker=null, fleshBoss=null; const fleshBalls=[];
+const ARENA_X=0, ARENA_Z=-6000, ARENA_R=42;   // the sealed basement arena, far off-map
+function buildBunker(){
+  const CONC =new THREE.MeshStandardMaterial({color:0x6b6f76,roughness:.96,metalness:.05,flatShading:true});
+  const CONC2=new THREE.MeshStandardMaterial({color:0x51565d,roughness:.96,flatShading:true});
+  const STEEL=new THREE.MeshStandardMaterial({color:0x3a3f47,roughness:.5,metalness:.65});
+  // ---- above-ground entrance ----
+  const gy=mountainHeightAt(BUNKER_X,BUNKER_Z);   // (groundHeightAt needs `player`, which isn't ready at load)
+  const e=new THREE.Group(); e.position.set(BUNKER_X,gy,BUNKER_Z);
+  const base=new THREE.Mesh(new THREE.BoxGeometry(7,3,7),CONC); base.position.y=1.2; base.castShadow=base.receiveShadow=true; e.add(base);
+  const rim=new THREE.Mesh(new THREE.CylinderGeometry(1.8,2.0,1.1,14),CONC2); rim.position.y=2.9; e.add(rim);
+  const hatch=new THREE.Mesh(new THREE.CylinderGeometry(1.55,1.55,0.35,14),STEEL); hatch.position.y=3.5; e.add(hatch);
+  const wheel=new THREE.Mesh(new THREE.TorusGeometry(0.7,0.12,8,16),STEEL); wheel.rotation.x=Math.PI/2; wheel.position.y=3.72; e.add(wheel);
+  const sign=new THREE.Mesh(new THREE.PlaneGeometry(3.0,1.2), new THREE.MeshStandardMaterial({color:0xffcc00,emissive:0x3a2c00,emissiveIntensity:.6,side:THREE.DoubleSide}));
+  sign.position.set(0,2.1,3.56); e.add(sign);
+  const lamp=new THREE.PointLight(0xffd27a,0.7,12,2); lamp.position.set(0,4.2,0); e.add(lamp);
+  staticGroup.add(e); e.updateMatrixWorld(true);
+  addBoxCollider(BUNKER_X,BUNKER_Z,3.6,3.6);
+  // ---- sealed underground arena (far off-map) ----
+  const A=new THREE.Group(); A.position.set(ARENA_X,0,ARENA_Z);
+  const R=ARENA_R, WH=16;
+  const floor=new THREE.Mesh(new THREE.BoxGeometry(R*2,1,R*2), CONC2); floor.position.y=-0.5; floor.receiveShadow=true; A.add(floor);
+  const ceil =new THREE.Mesh(new THREE.BoxGeometry(R*2,1,R*2), CONC); ceil.position.y=WH; A.add(ceil);
+  for(const [dx,dz,sx,sz] of [[0,-R,R*2,1.2],[0,R,R*2,1.2],[-R,0,1.2,R*2],[R,0,1.2,R*2]]){
+    const w=new THREE.Mesh(new THREE.BoxGeometry(sx,WH,sz),CONC); w.position.set(dx,WH/2,dz); A.add(w);
+  }
+  for(const [lx,lz] of [[-24,-24],[24,-24],[-24,24],[24,24],[0,0]]){
+    const L=new THREE.PointLight(0xff4a33,0.9,60,2); L.position.set(lx,WH-3,lz); L.userData.anim=true; A.add(L); }
+  // exit hatch (glowing green) in a corner
+  const exX=-R+7, exZ=R-7;
+  const ex=new THREE.Mesh(new THREE.CylinderGeometry(1.7,1.7,0.4,14),STEEL); ex.position.set(exX,0.2,exZ); A.add(ex);
+  const exGlow=new THREE.Mesh(new THREE.SphereGeometry(0.55,10,10), new THREE.MeshBasicMaterial({color:0x66ff88})); exGlow.position.set(exX,1.6,exZ); exGlow.userData.anim=true; A.add(exGlow);
+  const exLight=new THREE.PointLight(0x66ff88,0.9,14,2); exLight.position.set(exX,2,exZ); exLight.userData.anim=true; A.add(exLight);
+  staticGroup.add(A); A.updateMatrixWorld(true);
+  // wall colliders so you can't leave the arena
+  addBoxCollider(ARENA_X, ARENA_Z-R, R, 0.6);
+  addBoxCollider(ARENA_X, ARENA_Z+R, R, 0.6);
+  addBoxCollider(ARENA_X-R, ARENA_Z, 0.6, R);
+  addBoxCollider(ARENA_X+R, ARENA_Z, 0.6, R);
+  bunker={ x:BUNKER_X, z:BUNKER_Z, ey:gy, exitX:ARENA_X+exX, exitZ:ARENA_Z+exZ };
+}
+function makeFleshBossMesh(){
+  const g=new THREE.Group();
+  const flesh =new THREE.MeshStandardMaterial({color:0x9a1f22,roughness:.85,emissive:0x2a0004,emissiveIntensity:.5,flatShading:true});
+  const flesh2=new THREE.MeshStandardMaterial({color:0x6e1418,roughness:.9,flatShading:true});
+  const body=new THREE.Mesh(new THREE.IcosahedronGeometry(3.0,1),flesh); body.position.y=3.4; body.castShadow=true; g.add(body);
+  const belly=new THREE.Mesh(new THREE.SphereGeometry(2.4,12,10),flesh2); belly.position.set(0,2.2,1.2); g.add(belly);
+  for(let i=0;i<7;i++){ const r=1+Math.random()*1.2; const lump=new THREE.Mesh(new THREE.IcosahedronGeometry(r,0),flesh2);
+    lump.position.set(rand(-2.6,2.6), 2.4+rand(0,3.4), rand(-2.6,2.6)); g.add(lump); }
+  const head=new THREE.Mesh(new THREE.SphereGeometry(1.5,12,10),flesh); head.position.y=6.2; g.add(head);
+  const maw=new THREE.Mesh(new THREE.SphereGeometry(0.9,10,8),new THREE.MeshBasicMaterial({color:0x120000})); maw.position.set(0,6.0,1.2); maw.scale.set(1.2,0.8,0.7); g.add(maw);
+  const eyeMat=new THREE.MeshBasicMaterial({color:0xffd000});
+  for(const sx of [-0.55,0.55]){ const ey=new THREE.Mesh(new THREE.SphereGeometry(0.22,8,8),eyeMat); ey.position.set(sx,6.5,1.1); g.add(ey); }
+  for(const sx of [-2.6,2.6]){ const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.9,3.6,7),flesh); arm.position.set(sx,3.6,0.6); arm.rotation.z=sx>0?0.5:-0.5; arm.castShadow=true; g.add(arm); }
+  // boss health bar
+  const cv=document.createElement("canvas"); cv.width=96; cv.height=12;
+  const tex=new THREE.CanvasTexture(cv);
+  const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,depthTest:false}));
+  spr.scale.set(6,0.7,1); spr.position.y=8.6; g.add(spr); spr.raycast=function(){};
+  g.userData.hbCanvas=cv; g.userData.hbTex=tex; g.userData.hbSpr=spr;
+  return g;
+}
+function nearBunker(){
+  if(!bunker) return false;
+  if(!player.inBunker) return Math.hypot(player.pos.x-bunker.x, player.pos.z-bunker.z)<6;
+  return Math.hypot(player.pos.x-bunker.exitX, player.pos.z-bunker.exitZ)<4.5;
+}
+function toggleBunker(){ if(!player.inBunker) descendBunker(); else ascendBunker(); }
+function descendBunker(){
+  player.inBunker=true; player.vehicle=null; player.passenger=false;
+  if(gunMesh) gunMesh.visible=true;
+  player.pos.set(ARENA_X, 0, ARENA_Z + (ARENA_R-9)); player.vel.set(0,0,0); player.yaw=Math.PI; player.pitch=0;
+  spawnFleshBoss();
+  document.getElementById("carHud").classList.add("hidden");
+  toast("🚪 Ти спустився в бункер… звідси не всі виходять 😱");
+}
+function ascendBunker(){
+  player.inBunker=false;
+  player.pos.set(bunker.x+4, bunker.ey, bunker.z+4); player.vel.set(0,0,0);
+  removeFleshBoss();
+  toast("Ти вибрався з бункера");
+}
+function spawnFleshBoss(){
+  if(fleshBoss && fleshBoss.alive) return;
+  const mesh=makeFleshBossMesh(); mesh.position.set(ARENA_X, 0, ARENA_Z-(ARENA_R-12)); dynGroup.add(mesh);
+  const strongest = 1600 + (Math.max(nightNum,3)+4)*380;   // reference: a very strong Blind-Hunter boss
+  const hp = strongest*3;                                  // 3× the strongest boss
+  fleshBoss={ mesh, x:ARENA_X, z:ARENA_Z-(ARENA_R-12), y:0, alive:true, nid:++zid, boss:true, flesh:true,
+    hp, maxHp:hp, speed:3.6, dmg:58, throwT:2.2, atkT:0, hitFlash:0, wobble:0, lunge:0, steer:0 };
+  bots.push(fleshBoss); drawHB(fleshBoss);
+  warnEl.textContent="🩸 М'ЯСНИЙ БОС ПРОКИНУВСЯ — він кидається власною плоттю! (×3 найсильніший бос)"; warnEl.style.opacity=1;
+  setTimeout(()=>{ warnEl.style.opacity=0; },5000);
+}
+function removeFleshBoss(){
+  if(fleshBoss){ if(fleshBoss.mesh.parent) dynGroup.remove(fleshBoss.mesh);
+    const i=bots.indexOf(fleshBoss); if(i>=0) bots.splice(i,1); fleshBoss=null; }
+  for(const fb of fleshBalls){ if(fb.mesh.parent) dynGroup.remove(fb.mesh); } fleshBalls.length=0;
+}
+function throwFlesh(){
+  const b=fleshBoss; if(!b) return;
+  const start=new THREE.Vector3(b.x, 6.0, b.z);
+  const tx=player.pos.x, tz=player.pos.z;
+  const g=new THREE.Group();
+  const chunk=new THREE.Mesh(new THREE.IcosahedronGeometry(0.55,0),
+    new THREE.MeshStandardMaterial({color:0xb0242a,roughness:.8,emissive:0x2a0004,emissiveIntensity:.5,flatShading:true}));
+  g.add(chunk); g.position.copy(start); dynGroup.add(g);
+  // ballistic arc: start y≈6, land near the player's chest (y≈2) after time t
+  const dx=tx-b.x, dz=tz-b.z, dist=Math.hypot(dx,dz)||1;
+  const t=clamp(dist/22 + 0.5, 0.5, 1.8);
+  const vy=(2 - start.y + 0.5*GRAV*t*t)/t;
+  const vx=dx/t, vz=dz/t;
+  fleshBalls.push({mesh:g, x:start.x, y:start.y, z:start.z, vx, vy, vz, life:4, spin:rand(2,6)});
+  playBlip(140,0.12);
+}
+function updateFleshBoss(dt){
+  const b=fleshBoss;
+  // move + attack the local player (host authoritative for its own arena)
+  if(b && b.alive){
+    if(b.hitFlash>0) b.hitFlash-=dt*60;
+    const dx=player.pos.x-b.x, dz=player.pos.z-b.z, dp=Math.hypot(dx,dz), a=Math.atan2(dz,dx);
+    if(dp>4.5){ const step=b.speed*dt; const nx=b.x+Math.cos(a)*step, nz=b.z+Math.sin(a)*step;
+      // stay inside the arena walls
+      if(Math.abs(nx-ARENA_X)<ARENA_R-3) b.x=nx; if(Math.abs(nz-ARENA_Z)<ARENA_R-3) b.z=nz; }
+    b.mesh.position.set(b.x,0,b.z); b.mesh.rotation.y=-a+Math.PI/2;
+    b.atkT-=dt; b.throwT-=dt;
+    if(dp<5.5 && b.atkT<=0){ b.atkT=1.1; if(player.alive) damagePlayer(b.dmg,false); }   // melee slam
+    if(b.throwT<=0 && player.alive){ b.throwT=rand(1.8,3.0); throwFlesh(); }              // lob flesh
+    drawHB(b);
+  }
+  // flesh projectiles
+  for(let i=fleshBalls.length-1;i>=0;i--){ const f=fleshBalls[i];
+    f.vy-=GRAV*dt; f.x+=f.vx*dt; f.y+=f.vy*dt; f.z+=f.vz*dt; f.life-=dt;
+    f.mesh.position.set(f.x,f.y,f.z); f.mesh.rotation.x+=f.spin*dt; f.mesh.rotation.y+=f.spin*dt;
+    const hitPlayer = Math.hypot(f.x-player.pos.x, f.z-player.pos.z)<1.5 && Math.abs(f.y-(player.pos.y+1))<1.8;
+    if(hitPlayer || f.y<0.2 || f.life<=0){
+      burst(f.x, Math.max(0.3,f.y), f.z, 0xb0242a, 10);
+      if(hitPlayer && player.alive) damagePlayer(34,false);
+      if(f.mesh.parent) dynGroup.remove(f.mesh); fleshBalls.splice(i,1);
+    }
+  }
+}
+try{ buildBunker(); }catch(e){ console.warn("bunker build failed", e); }
 
 // ===================================================================
 //  Chests / loot
@@ -2897,8 +3046,8 @@ function fireRay(origin,dir,range,dmg,friendly){
       const head = h.point.y > hitBot.y+1.7;
       const d = head? dmg*2 : dmg;
       showHit(head); burst(h.point.x,h.point.y,h.point.z,0xff8080,4);
-      if(net.isHost()){ hitBot.hp-=d; hitBot.hitFlash=4; drawHB(hitBot); if(hitBot.hp<=0) killBot(hitBot,false); }
-      else { net.send({t:"zhit", nid:hitBot.nid, dmg:d}); hitBot.hitFlash=4; }  // host is authoritative
+      if(net.isHost() || hitBot.flesh){ hitBot.hp-=d; hitBot.hitFlash=4; drawHB(hitBot); if(hitBot.hp<=0) killBot(hitBot,false); }
+      else { net.send({t:"zhit", nid:hitBot.nid, dmg:d}); hitBot.hitFlash=4; }  // host is authoritative (flesh boss is local)
     } else {
       // structure?
       let st=null; obj=h.object;
@@ -3283,7 +3432,7 @@ addEventListener("keydown",e=>{
   if(truckStoring){ if(c==="Escape"||c==="KeyT") closeTruckStore(); return; }   // storage open: freeze game keys
   if(c==="KeyB"){ if(!player.vehicle){ buildMode=!buildMode; updateModeTag(); } }
   else if(c==="KeyR"){ startReload(); }
-  else if(c==="KeyE"){ if(nearTower()){ sendSignal(); } else { const dr=nearDoor(); if(nearBench()) openCraft(); else if(nearFurnace()) openFurnace(); else if(dr) toggleDoor(dr); else tryOpenChest(); } }
+  else if(c==="KeyE"){ if(nearTower()){ sendSignal(); } else { const dr=nearDoor(); if(nearBench()) openCraft(); else if(nearFurnace()) openFurnace(); else if(nearBunker()) toggleBunker(); else if(dr) toggleDoor(dr); else tryOpenChest(); } }
   else if(c==="KeyI"){ if(!player.vehicle){ invOpen?closeInv():openInv(); } }
   else if(c==="KeyF"){ toggleVehicle(); }
   else if(c==="KeyG"){ if(player.vehicle) refuelCar(); }
@@ -3869,7 +4018,7 @@ function update(dt){
   let nx=player.pos.x+wx*speed*dt;
   let nz=player.pos.z+wz*speed*dt;
   [nx,nz]=resolveHoriz(nx,nz);
-  { const rr=Math.hypot(nx,nz), lim=WORLD*1.05; if(rr>lim){ nx=nx/rr*lim; nz=nz/rr*lim; } }  // stay on the island, but WALK OUT onto the sandy beach ring
+  if(!player.inBunker){ const rr=Math.hypot(nx,nz), lim=WORLD*1.05; if(rr>lim){ nx=nx/rr*lim; nz=nz/rr*lim; } }  // stay on the island (bypassed in the off-map bunker arena)
   player.pos.x=nx; player.pos.z=nz;
 
   // ---- Ladder climbing (vertical) ----
@@ -3956,6 +4105,7 @@ function update(dt){
   // Only the host simulates zombies; clients render them from host snapshots.
   if(net.isHost()) for(const b of bots){
     if(!b.alive) continue;
+    if(b.flesh) continue;   // the flesh boss lives in its own arena — simulated by updateFleshBoss
     if(b.hitFlash>0){ b.hitFlash-=dt*60; }
     b.atkT-=dt; b.wobble+=dt*6;
     // House/jungle guards lie in wait near their spot until a player comes close, then wake up.
@@ -4058,6 +4208,7 @@ function update(dt){
   updateTurrets(dt);
   updateEnemyHelis(dt);
   updateRockets(dt);
+  if(player.inBunker || fleshBoss || fleshBalls.length) updateFleshBoss(dt);   // bunker boss + flying flesh
 
   // sun follows player (shadow coverage)
   sun.position.set(player.pos.x+120, 220, player.pos.z+90);
