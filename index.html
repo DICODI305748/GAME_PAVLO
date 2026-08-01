@@ -1608,7 +1608,7 @@ const net = {
     if(this.isHost()){
       this.snapT-=dt;
       if(this.snapT<=0){ this.snapT=0.14;
-        const zs=[]; for(const b of bots){ if(b.alive) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0]); }
+        const zs=[]; for(const b of bots){ if(b.alive) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0, b.panda?1:0]); }
         this.send({t:"zsnap", z:zs, phase, night:nightNum, clock:Math.round(clockT)});
       }
     } else {
@@ -1728,12 +1728,12 @@ function playAvatarShoot(mesh){ playAvatarOnce(mesh,"shoot",380,1.3); } // brief
 // Client: reconcile zombies from a host snapshot.
 function applyZSnap(m){
   const seen=new Set();
-  for(const [nid,x,z,hp,boss] of m.z){
+  for(const [nid,x,z,hp,boss,panda] of m.z){
     seen.add(nid);
     let b=bots.find(z2=>z2.nid===nid);
-    if(!b){ const mesh=makeBotMesh(boss?0x7a1f1f:0x5a8a3a, !!boss); mesh.position.set(x,0,z); dynGroup.add(mesh);
-      b={mesh,nid,x,z,y:0,alive:true,hp,maxHp:hp,speed:0,dmg:0,atkT:0,hitFlash:0,wobble:0,lunge:0,boss:!!boss,remote:true}; bots.push(b); drawHB(b); }
-    b.tx=x; b.tz=z; b.hp=hp; if(boss&&b.maxHp<hp) b.maxHp=hp; drawHB(b);
+    if(!b){ const mesh=makeBotMesh(boss?0x7a1f1f:0x5a8a3a, !!boss, !!panda); mesh.position.set(x,0,z); dynGroup.add(mesh);
+      b={mesh,nid,x,z,y:0,alive:true,hp,maxHp:hp,speed:0,dmg:0,atkT:0,hitFlash:0,wobble:0,lunge:0,boss:!!boss,panda:!!panda,remote:true}; bots.push(b); drawHB(b); }
+    b.tx=x; b.tz=z; b.hp=hp; if((boss||panda)&&b.maxHp<hp) b.maxHp=hp; drawHB(b);
   }
   // remove zombies no longer in snapshot
   for(const b of bots){ if(b.remote && !seen.has(b.nid) && b.alive){ b.alive=false; dynGroup.remove(b.mesh); } }
@@ -2268,9 +2268,26 @@ function upgradeAimed(){
 // ===================================================================
 //  Bots
 // ===================================================================
-function makeBotMesh(color, boss){
+function makeBotMesh(color, boss, panda){
   const g=new THREE.Group();
-  if(boss){
+  if(panda && !boss){
+    // Panda zombie — chunky white body with black ears/patches/limbs (rare)
+    const white=new THREE.MeshStandardMaterial({color:0xf2f2ec,roughness:.9});
+    const black=new THREE.MeshStandardMaterial({color:0x181818,roughness:.9});
+    const body=new THREE.Mesh(new THREE.CylinderGeometry(0.62,0.74,1.8,12),white); body.position.y=1.15; body.castShadow=true; g.add(body);
+    const hips=new THREE.Mesh(new THREE.SphereGeometry(0.7,12,10),white); hips.position.y=0.55; g.add(hips);
+    const head=new THREE.Mesh(new THREE.SphereGeometry(0.55,14,12),white); head.position.y=2.35; head.castShadow=true; g.add(head);
+    for(const sx of [-0.38,0.38]){ const ear=new THREE.Mesh(new THREE.SphereGeometry(0.2,10,10),black); ear.position.set(sx,2.82,0); g.add(ear); }
+    for(const sx of [-0.22,0.22]){ const patch=new THREE.Mesh(new THREE.SphereGeometry(0.16,10,10),black); patch.position.set(sx,2.4,0.42); patch.scale.set(1,1.4,0.5); g.add(patch); }
+    const eyeMat=new THREE.MeshBasicMaterial({color:0xff2a2a});
+    for(const sx of [-0.22,0.22]){ const e=new THREE.Mesh(new THREE.SphereGeometry(0.07,7,7),eyeMat); e.position.set(sx,2.4,0.56); g.add(e); }
+    const snout=new THREE.Mesh(new THREE.SphereGeometry(0.12,8,8),black); snout.position.set(0,2.24,0.55); g.add(snout);
+    for(const sx of [-0.72,0.72]){ const a=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,1.2,7),black);
+      a.position.set(sx,1.5,0.5); a.rotation.x=-1.3; a.castShadow=true; g.add(a); }
+    for(const sx of [-0.32,0.32]){ const l=new THREE.Mesh(new THREE.CylinderGeometry(0.24,0.24,0.9,7),black); l.position.set(sx,0.35,0); g.add(l); }
+    g.scale.setScalar(1.18);
+    g.userData.panda=true;
+  } else if(boss){
     if(BOSS_MODEL){ g.add(BOSS_MODEL.clone(true)); }
     else {                                              // fallback: a big menacing red code zombie
       const skin=0x7a1f1f;
@@ -2291,7 +2308,9 @@ function makeBotMesh(color, boss){
     g.userData.hbCanvas=cv; g.userData.hbTex=tex; g.userData.hbSpr=spr;
     return g;
   }
-  if(ZOMBIE_MODEL){
+  if(g.userData.panda){
+    // panda body already built above — fall through to the shared health bar
+  } else if(ZOMBIE_MODEL){
     // clone the rigged model (SkeletonUtils rebinds the skeleton so each zombie
     // animates independently) and play its walk clip
     const clone=(THREE.SkeletonUtils&&THREE.SkeletonUtils.clone)?THREE.SkeletonUtils.clone(ZOMBIE_MODEL):ZOMBIE_MODEL.clone(true);
@@ -2356,12 +2375,14 @@ function spawnWave(night){
     let x=cx+Math.cos(ang)*r, z=cz+Math.sin(ang)*r;
     const rr=Math.hypot(x,z); if(rr>WORLD-10){ x=x/rr*(WORLD-10); z=z/rr*(WORLD-10); }   // stay on land
     if(Math.hypot(x,z)<MTN_R+20){ const s=(MTN_R+20)/Math.max(1,Math.hypot(x,z)); x*=s; z*=s; } // off the mountain
-    const mesh=makeBotMesh(tints[i%tints.length]);
+    const isPanda = Math.random()<0.045;   // rare panda zombie in the horde 🐼
+    const mesh=makeBotMesh(tints[i%tints.length], false, isPanda);
     mesh.position.set(x,0,z); dynGroup.add(mesh);
+    const hpP=isPanda?hpBase*2.6:hpBase;
     const z0={
-      mesh, x, z, y:0, alive:true, nid:++zid,
-      hp:hpBase*rand(0.85,1.2), maxHp:hpBase*1.2,
-      speed:spd*rand(0.85,1.15), dmg:dmgBase*rand(0.85,1.15),
+      mesh, x, z, y:0, alive:true, nid:++zid, panda:isPanda,
+      hp:hpP*rand(0.85,1.2), maxHp:hpP*1.2,
+      speed:(isPanda?spd*0.82:spd)*rand(0.85,1.15), dmg:(isPanda?dmgBase*1.7:dmgBase)*rand(0.85,1.15),
       atkT:0, hitFlash:0, target:null, wobble:rand(0,6.28),
       follow:0, steer:0,
     };
@@ -2390,6 +2411,36 @@ function spawnBoss(night){
   warnEl.textContent="💀 БОС-ЗОМБІ «СЛІПИЙ МИСЛИВЕЦЬ» ВИЙШОВ НА ПОЛЮВАННЯ!"; warnEl.style.opacity=1;
   setTimeout(()=>{ if(phase==="night") warnEl.style.opacity=0; },4500);
   toast("💀 Обережно — БОС! Дуже живучий, швидкий і б'є боляче.");
+}
+// Spawn a "guard" zombie that stays near (hx,hz) until a player comes close (leash AI).
+function spawnGuardZombie(x,z, opts){
+  opts=opts||{};
+  const mesh=makeBotMesh(0x5a8a3a, false, !!opts.panda); mesh.position.set(x,0,z); dynGroup.add(mesh);
+  const hp=opts.hp||(opts.panda?190:70);
+  const b={ mesh, x, z, y:0, alive:true, nid:++zid, panda:!!opts.panda,
+    hp, maxHp:hp, speed:opts.speed||(opts.panda?2.4:2.9), dmg:opts.dmg||(opts.panda?20:12),
+    atkT:0, hitFlash:0, target:null, wobble:rand(0,6.28), follow:0, steer:0,
+    house:true, hx:x, hz:z, aggroR:opts.aggroR||32, aggro:false };
+  drawHB(b); bots.push(b);
+  return b;
+}
+// 50% of houses hide 1–2 zombies; plus a few rare pandas lurk in the jungle.
+function spawnAmbientZombies(){
+  if(!net.isHost()) return;   // host owns all zombies; guests get them via zsnap
+  for(const h of houses){
+    if(Math.random()<0.5){                       // 50% chance this house has zombies
+      const n=1+(Math.random()<0.5?1:0);         // 1 or 2
+      for(let k=0;k<n;k++) spawnGuardZombie(h.cx+rand(-3.5,3.5), h.cz+rand(-3.5,3.5), {});
+    }
+  }
+  // rare jungle pandas 🐼 (1–3), wandering the thicket
+  const pandas=1+Math.floor(Math.random()*3);
+  for(let i=0;i<pandas;i++){
+    const a=rand(0,6.28), r=rand(0, JUNGLE_R*0.8);
+    const x=JUNGLE_CX+Math.cos(a)*r, z=JUNGLE_CZ+Math.sin(a)*r;
+    if(Math.hypot(x,z)>WORLD-20) continue;
+    spawnGuardZombie(x,z,{panda:true, aggroR:26});
+  }
 }
 
 // ===================================================================
@@ -3907,6 +3958,13 @@ function update(dt){
     if(!b.alive) continue;
     if(b.hitFlash>0){ b.hitFlash-=dt*60; }
     b.atkT-=dt; b.wobble+=dt*6;
+    // House/jungle guards lie in wait near their spot until a player comes close, then wake up.
+    if(b.house && !b.aggro){
+      const t0=nearestPlayerTo(b.x,b.z);
+      if(t0 && Math.hypot(t0.x-b.x,t0.z-b.z) < (b.aggroR||32)){ b.aggro=true; }
+      else { b.y=mountainHeightAt(b.x,b.z); b.mesh.position.set(b.x,b.y,b.z);
+             b.mesh.rotation.y=b.wobble*0.15; continue; }   // idle at home
+    }
     const tgt=nearestPlayerTo(b.x,b.z) || {x:b.x,y:0,z:b.z,peer:null};
     const dxp=tgt.x-b.x, dzp=tgt.z-b.z;
     const dp=Math.hypot(dxp,dzp);
@@ -4235,6 +4293,7 @@ function startGame(){
   if(net.online && !net.peer) net.connect();   // join the co-op session (P2P)
   matchRand = mulberry32(MATCH_SEED);  // reset the deterministic spawn stream (same layout for all players)
   spawnChests(); spawnCars(); spawnCrashLoot();   // crash sites are loot hotspots
+  spawnAmbientZombies();               // zombies hiding in houses + rare jungle pandas
   buildViewmodel(); buildInvBar(); updateModeTag(); updateHUD();
   setObjective(null);
 
