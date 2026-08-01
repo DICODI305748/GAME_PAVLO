@@ -1470,6 +1470,7 @@ const net = {
         if(b){ b.hp-=m.dmg; b.hitFlash=4; drawHB(b); if(b.hp<=0) killBot(b,false); } } break;
       case "zdmg": if(m.to===this.id && player && player.alive){ damagePlayer(m.dmg,false); } break;  // a host zombie hit me
       case "phit": { const pr=this.peers.get(m.from); if(pr&&pr.mesh) playAvatarHit(pr.mesh); } break;  // a teammate got hit — show knockback
+      case "pshoot": { const pr=this.peers.get(m.from); if(pr&&pr.mesh) playAvatarShoot(pr.mesh); } break;  // a teammate fired — show shooting pose
       case "chestopen": { const c=chests[m.i]; if(c && !c.opened) markChestOpen(c); } break;          // teammate opened a chest
       case "carenter": { const car=cars[m.ci]; if(car){ if(m.role==="driver"){ car.driverId=m.id; car.driverLocal=false; } } } break;
       case "carexit":  { const car=cars[m.ci]; if(car && car.driverId===m.id){ car.driverId=null; car.driverLocal=false; car.speed=0; } } break;
@@ -1485,19 +1486,23 @@ const net = {
   updatePeer(m){
     let pr=this.peers.get(m.from);
     if(!pr){ pr={mesh:makeAvatar(), tx:m.x,ty:m.y,tz:m.z,yaw:m.yaw}; dynGroup.add(pr.mesh); this.peers.set(m.from,pr); }
-    pr.tx=m.x; pr.ty=m.y; pr.tz=m.z; pr.yaw=m.yaw;
+    pr.tx=m.x; pr.ty=m.y; pr.tz=m.z; pr.yaw=m.yaw; pr.mstate=m.mv||0;
   },
   removePeer(id){ const pr=this.peers.get(id); if(pr){ dynGroup.remove(pr.mesh); this.peers.delete(id); } },
 
   tick(dt){
     if(!this.connected) return;
-    // send my transform ~12/s
+    // send my transform + movement state (0 idle / 1 walk / 2 run) ~12/s
     this.sendT-=dt;
     if(this.sendT<=0){ this.sendT=0.08;
-      this.send({t:"pos", x:+player.pos.x.toFixed(2), y:+player.pos.y.toFixed(2), z:+player.pos.z.toFixed(2), yaw:+player.yaw.toFixed(2)}); }
-    // smooth remote avatars + drive their walk/idle animation
+      const now=performance.now(); let ms=0;
+      if(this._lt){ const spd=Math.hypot(player.pos.x-this._lx, player.pos.z-this._lz)/Math.max(0.001,(now-this._lt)/1000);
+        ms = spd<1.2?0 : spd<9?1 : 2; }
+      if(player.vehicle) ms=0;   // sitting in a car -> stand, don't run in place
+      this._lx=player.pos.x; this._lz=player.pos.z; this._lt=now;
+      this.send({t:"pos", x:+player.pos.x.toFixed(2), y:+player.pos.y.toFixed(2), z:+player.pos.z.toFixed(2), yaw:+player.yaw.toFixed(2), mv:ms}); }
+    // smooth remote avatars + drive their idle/walk/run/jump animation
     for(const pr of this.peers.values()){
-      const mv=Math.hypot(pr.tx-pr.mesh.position.x, pr.tz-pr.mesh.position.z);   // how far behind the target we are ~ speed
       pr.mesh.position.x += (pr.tx-pr.mesh.position.x)*Math.min(1,dt*12);
       pr.mesh.position.y += (pr.ty-pr.mesh.position.y)*Math.min(1,dt*12);
       pr.mesh.position.z += (pr.tz-pr.mesh.position.z)*Math.min(1,dt*12);
@@ -1507,7 +1512,8 @@ const net = {
       if(pr.groundY==null) pr.groundY=pr.ty;
       const airborne = pr.ty > pr.groundY + 0.7;
       if(!airborne) pr.groundY += (pr.ty-pr.groundY)*Math.min(1,dt*3);   // follow real ground (slopes/floors) when grounded
-      setAvatarAnim(pr.mesh, airborne ? "jump" : (mv>0.05 ? "run" : "idle"));
+      const name = airborne ? "jump" : (pr.mstate>=1 ? "run" : "idle");
+      setAvatarAnim(pr.mesh, name);
       if(pr.mesh.userData.mixer) pr.mesh.userData.mixer.update(dt);
     }
     // host broadcasts zombies + day/night ~7/s
@@ -1553,11 +1559,12 @@ function loadAvatarRig(){
       let mi=0; base.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; o.material=(mi++%2? gearMat:soldierMat); } });
       base.updateMatrixWorld(true);
       const fb=new THREE.Box3().setFromObject(base); base.position.y -= fb.min.y;   // drop feet to y=0
-      if(base.animations&&base.animations[0]){ base.animations[0].name="idle"; AVATAR_CLIPS.idle=stripRootMotion(base.animations[0]); }
+      base.animations=[];   // all clips come from the baked JSON below, not the .fbx
       SOLDIER_RIG=base;
-      loadClipJSON("anims/run.clip.json","run");
-      loadClipJSON("anims/jump.clip.json","jump");   // "Jumping_1" — plays when a teammate is airborne
-      loadClipJSON("anims/hit.clip.json","hit");     // "Shoved Reaction With Spin" — knockback when hit
+      loadClipJSON("anims/idle.clip.json","idle");   // Gunplay stance — standing still
+      loadClipJSON("anims/run.clip.json","run");     // Slow_Run — moving
+      loadClipJSON("anims/jump.clip.json","jump");   // Jumping — airborne
+      loadClipJSON("anims/hit.clip.json","hit");     // Shoved Reaction With Spin — knockback when hit
     }, undefined, ()=>{});
   }catch(e){}
 }
@@ -1566,13 +1573,11 @@ function makeAvatar(){
   if(SOLDIER_RIG && THREE.SkeletonUtils && THREE.SkeletonUtils.clone){
     const g=new THREE.Group();
     const rig=THREE.SkeletonUtils.clone(SOLDIER_RIG); g.add(rig);
-    const mixer=new THREE.AnimationMixer(rig); const actions={};
-    for(const k in AVATAR_CLIPS){ if(AVATAR_CLIPS[k]) actions[k]=mixer.clipAction(AVATAR_CLIPS[k]); }
-    if(actions.hit){ actions.hit.setLoop(THREE.LoopOnce,1); actions.hit.clampWhenFinished=true; }  // knockback plays once
-    if(actions.idle){ actions.idle.play(); }
-    g.userData.mixer=mixer; g.userData.actions=actions; g.userData.anim="idle"; g.userData.lockUntil=0;
+    const mixer=new THREE.AnimationMixer(rig);
+    g.userData.mixer=mixer; g.userData.actions={}; g.userData.anim=null; g.userData.lockUntil=0;
     g.userData.yawOff=Math.PI;   // Mixamo faces +Z; flip so it faces the way it moves (game uses -Z forward)
     AVATAR_MIXERS.push(mixer);
+    setAvatarAnim(g,"idle");     // clips may still be loading — ensureAction handles that lazily
     return g;
   }
   // fallback: simple code avatar (used until the .fbx rig finishes loading)
@@ -1583,23 +1588,36 @@ function makeAvatar(){
   const gun=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.2,0.7),new THREE.MeshStandardMaterial({color:0x22262f})); gun.position.set(0.35,1.3,-0.4); g.add(gun);
   return g;
 }
-// crossfade a teammate avatar to a named looping clip (idle/run)
+// Lazily build a clip action (clips may finish loading after the avatar was created).
+const AVATAR_ONESHOT={hit:1, shoot:1, jump:0};
+function ensureAction(mesh,name){
+  const ud=mesh.userData; if(!ud.mixer) return null;
+  if(ud.actions[name]) return ud.actions[name];
+  const clip=AVATAR_CLIPS[name]; if(!clip) return null;
+  const act=ud.mixer.clipAction(clip);
+  if(AVATAR_ONESHOT[name]){ act.setLoop(THREE.LoopOnce,1); act.clampWhenFinished=true; }
+  ud.actions[name]=act; return act;
+}
+// crossfade a teammate avatar to a named looping clip (idle/walk/run/jump)
 function setAvatarAnim(mesh, name){
-  const a=mesh.userData&&mesh.userData.actions; if(!a) return;
-  if(performance.now()<(mesh.userData.lockUntil||0)) return;   // a one-shot (hit) is playing — don't interrupt
-  if(mesh.userData.anim===name || !a[name]) return;
-  const prev=a[mesh.userData.anim];
-  a[name].reset().setEffectiveWeight(1).fadeIn(0.2).play();
-  if(prev) prev.fadeOut(0.2);
-  mesh.userData.anim=name;
+  const ud=mesh.userData; if(!ud||!ud.mixer) return;
+  if(performance.now()<(ud.lockUntil||0)) return;     // a one-shot (hit/shoot) is playing — don't interrupt
+  if(ud.anim===name) return;
+  const next=ensureAction(mesh,name); if(!next) return;
+  const prev=ud.anim && ud.actions[ud.anim];
+  next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.18).play();
+  if(prev) prev.fadeOut(0.18);
+  ud.anim=name;
 }
-// play the one-shot "shoved" knockback reaction on a teammate avatar, then fall back to idle/run
-function playAvatarHit(mesh){
-  const ud=mesh.userData, a=ud&&ud.actions; if(!a||!a.hit) return;
-  const prev=a[ud.anim]; if(prev) prev.fadeOut(0.12);
-  a.hit.reset().setEffectiveTimeScale(1.4).setEffectiveWeight(1).fadeIn(0.08).play();  // punchier stagger
-  ud.anim="hit"; ud.lockUntil=performance.now()+900;   // ~0.9s of the shove, then back to idle/run
+// one-shot overlay (hit / shoot): play once, lock movement anims briefly, then resume
+function playAvatarOnce(mesh, name, ms, timeScale){
+  const ud=mesh.userData; const act=ensureAction(mesh,name); if(!act) return;
+  const prev=ud.anim && ud.actions[ud.anim]; if(prev) prev.fadeOut(0.1);
+  act.reset().setEffectiveTimeScale(timeScale||1).setEffectiveWeight(1).fadeIn(0.08).play();
+  ud.anim=name; ud.lockUntil=performance.now()+ms;
 }
+function playAvatarHit(mesh){ playAvatarOnce(mesh,"hit",900,1.4); }    // Shoved Reaction
+function playAvatarShoot(mesh){ playAvatarOnce(mesh,"shoot",380,1.3); } // brief firing pose
 // Client: reconcile zombies from a host snapshot.
 function applyZSnap(m){
   const seen=new Set();
@@ -2607,6 +2625,7 @@ function shoot(){
   if(inv.ammo<=0){ startReload(); return; }
   player.lastShot=now; inv.ammo--;
   playShot(player.cur);
+  if(net.online && net.connected){ if(now>(_pshootT||0)){ _pshootT=now+220; net.send({t:"pshoot"}); } }  // teammates see my shooting pose
   // muzzle flash + recoil
   if(muzzle){ muzzle.intensity=3; setTimeout(()=>{if(muzzle)muzzle.intensity=0;},50); }
   if(gunMesh) gunMesh.position.z=(gunMesh.userData.base?gunMesh.userData.base.z:-0.95)+0.17; // kick back
@@ -3042,7 +3061,7 @@ function killBot(b, silent){
 // ===================================================================
 //  Damage / FX
 // ===================================================================
-let _phitT=0;   // throttle for broadcasting my "hit reaction" to teammates
+let _phitT=0, _pshootT=0;   // throttles for broadcasting hit-reaction / shooting pose to teammates
 function damagePlayer(d, storm){
   if(!player.alive) return;
   if(player.shield>0 && !storm){
