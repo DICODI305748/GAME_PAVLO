@@ -140,6 +140,8 @@
   <div class="toast" id="toast"></div>
   <div id="killfeed"></div>
   <canvas id="mini" width="150" height="150"></canvas>
+  <div id="mapHint" style="position:absolute;right:16px;top:176px;font-size:11px;color:#9fb0e0;text-shadow:0 1px 2px #000;letter-spacing:.4px">M — карта 🗺️</div>
+  <button id="musicBtn" title="Музика" style="position:absolute;left:16px;top:96px;width:34px;height:34px;border-radius:8px;border:1px solid #3b4a86;background:rgba(10,14,26,.72);color:#dfe7f5;font-size:16px;cursor:pointer">🎵</button>
 
   <div class="bars">
     <div class="bar"><span id="hpFill" style="width:100%"></span><div class="lab" id="hpLab">100 / 100</div></div>
@@ -183,7 +185,7 @@
       <b>🔨</b><span>Стіл крафта став на <b>металеву підлогу</b> — там крафтиш усю зброю (старт без зброї!)</span>
       <b>E</b><span>Скриня / стіл крафта / <b>відчинити-зачинити двері</b> · сокирою бий дерева, кіркою — каміння/руду</span>
       <b>F</b><span>Машина 🚗 · <b>R</b> перезарядка · збий вертоліт → базука 🚀</span>
-      <b>M</b><span>Увімкнути / вимкнути фонову музику 🎵</span>
+      <b>M</b><span>Відкрити карту на весь екран 🗺️ · музика — кнопка 🎵 зліва</span>
     </div>
     <p style="margin-top:12px;color:#9fb0e0;font-size:13px">Натисни кнопку, потім клікни по екрану щоб захопити мишу. <b>Esc</b> — відпустити.</p>
     <p style="margin-top:8px;color:#6b7aa8;font-size:11px">🎵 Музика: Kaelin Bougneit — «Empty World», «Meteor Strike» (CC-BY-SA 4.0), <a href="https://kaelinbougneit.bandcamp.com/" target="_blank" style="color:#8fa0d0">bandcamp</a></p>
@@ -271,6 +273,14 @@
   <div class="tag">Склади ресурси у фуру — вони не пропадуть після смерті</div>
   <div id="truckGrid"></div>
   <button class="play" id="truckClose" style="margin-top:18px">Закрити (Esc)</button>
+</div>
+
+<!-- Full-screen map (M) -->
+<div class="overlay hidden" id="mapScreen" style="justify-content:flex-start;padding-top:2vh">
+  <h1 style="font-size:clamp(24px,4vw,40px);margin-bottom:2px">🗺️ Карта острова</h1>
+  <div class="tag" style="margin-bottom:10px">M / Esc — закрити</div>
+  <canvas id="mapCanvas" width="760" height="760" style="max-width:92vmin;max-height:78vh;background:#0b1220;border:1px solid rgba(123,140,200,.4);border-radius:12px"></canvas>
+  <div id="mapLegend" style="margin-top:10px;color:#b9c6f0;font-size:13px;display:flex;gap:16px;flex-wrap:wrap;justify-content:center"></div>
 </div>
 
 <div id="loading">ЗАВАНТАЖЕННЯ 3D РУШІЯ…</div>
@@ -395,6 +405,19 @@ const wr = (a,b)=>a+wrand()*(b-a);
 const MATCH_SEED = (WORLD_SEED ^ 0x9E3779B9)>>>0;
 let matchRand = mulberry32(MATCH_SEED);
 const mr = (a,b)=>a+matchRand()*(b-a);
+// ---- Jungle biome + secret bunker: deterministic locations derived straight from the seed
+// (no wrand consumption, so they don't shift the rest of the world) ----
+const JUNGLE_ANG = ((WORLD_SEED % 62831)/10000);
+const JUNGLE_R  = WORLD*0.34;
+const JUNGLE_CX = Math.cos(JUNGLE_ANG)*WORLD*0.52;
+const JUNGLE_CZ = Math.sin(JUNGLE_ANG)*WORLD*0.52;
+// how "jungle" a spot is: 1 at the centre, fading to 0 at the edge
+function jungleFactor(x,z){ const d=Math.hypot(x-JUNGLE_CX, z-JUNGLE_CZ); return d>=JUNGLE_R?0:(1-d/JUNGLE_R); }
+function inJungle(x,z){ return jungleFactor(x,z)>0.12; }
+// bunker: one per map, opposite-ish side from the jungle, on land away from the mountain
+const BUNKER_ANG = JUNGLE_ANG + 2.6;
+const BUNKER_X = Math.cos(BUNKER_ANG)*WORLD*0.6;
+const BUNKER_Z = Math.sin(BUNKER_ANG)*WORLD*0.6;
 function hash2(ix,iz){ let h=Math.imul(ix|0,374761393)+Math.imul(iz|0,668265263)+WORLD_SEED;
   h=Math.imul(h^(h>>>13),1274126177); return ((h^(h>>>16))>>>0)/4294967296; }
 function vnoise(x,z){ // smooth value noise in [0,1]
@@ -3150,6 +3173,7 @@ addEventListener("keydown",e=>{
   if(crafting){ if(c==="Escape"||c==="KeyE") closeCraft(); return; }   // craft menu open: freeze game keys
   if(furnaceOpen){ if(c==="Escape"||c==="KeyE") closeFurnace(); return; }   // furnace menu open
   if(invOpen){ if(c==="Escape"||c==="KeyI") closeInv(); return; }           // inventory open
+  if(mapOpen){ if(c==="Escape"||c==="KeyM") closeMap(); return; }           // full-screen map open
   if(truckStoring){ if(c==="Escape"||c==="KeyT") closeTruckStore(); return; }   // storage open: freeze game keys
   if(c==="KeyB"){ if(!player.vehicle){ buildMode=!buildMode; updateModeTag(); } }
   else if(c==="KeyR"){ startReload(); }
@@ -3160,7 +3184,7 @@ addEventListener("keydown",e=>{
   else if(c==="KeyT"){ truckStoreKey(); }        // open the truck stash
   else if(c==="KeyH"){ installSpikes(); }        // bolt crafted spikes onto the truck
   else if(c==="KeyU"){ if(buildMode) upgradeAimed(); }
-  else if(c==="KeyM"){ toggleMusic(); }
+  else if(c==="KeyM"){ mapOpen?closeMap():openMap(); }
   else if(c==="Space"){ e.preventDefault(); if(!player.skydiving && !player.vehicle && player.onGround){ player.vel.y=JUMP; player.onGround=false; } }
   else if(/^Digit[0-9]$/.test(c)){
     const n=c.slice(5);
@@ -3536,6 +3560,74 @@ function drawMini(){
     miniCtx.fillStyle="#bff0ff"; miniCtx.fillText(MY_NICK.slice(0,10),px,pz-5); }
 }
 
+// ---- Full-screen map (M) ----
+let mapOpen=false;
+let mapCtx=null;
+function openMap(){ mapOpen=true; mouseDown=false; document.exitPointerLock&&document.exitPointerLock();
+  document.getElementById("mapScreen").classList.remove("hidden");
+  if(!mapCtx) mapCtx=document.getElementById("mapCanvas").getContext("2d");
+  const leg=document.getElementById("mapLegend");
+  if(leg) leg.innerHTML="<span style='color:#22e3ff'>◉ ти</span> <span style='color:#5ee0b0'>◉ друг</span> "+
+    "<span style='color:#ffd54a'>▪ скриня</span> <span style='color:#c07b3a'>▪ будинок</span> "+
+    "<span style='color:#7bd45a'>▪ зомбі</span> <span style='color:#2ec16b'>▮ джунглі</span> "+
+    "<span style='color:#ff5da0'>⬣ бункер</span> <span style='color:#e0e6f0'>▲ гора</span>";
+  drawFullMap();
+}
+function closeMap(){ mapOpen=false; document.getElementById("mapScreen").classList.add("hidden");
+  if(running && !player.vehicle) renderer.domElement.requestPointerLock(); }
+function drawFullMap(){
+  if(!mapCtx || !player) return;
+  const S=760, cx=S/2, cz=S/2, sc=(S*0.47)/WORLD;
+  const toX=x=>cx + x*sc, toZ=z=>cz + z*sc;
+  mapCtx.clearRect(0,0,S,S);
+  mapCtx.fillStyle="#0e2746"; mapCtx.fillRect(0,0,S,S);                       // sea
+  mapCtx.beginPath(); mapCtx.arc(cx,cz,WORLD*1.02*sc,0,7); mapCtx.fillStyle="#d9c08c"; mapCtx.fill();  // beach ring
+  mapCtx.beginPath(); mapCtx.arc(cx,cz,WORLD*sc,0,7); mapCtx.fillStyle= phase==="night"?"#2b3d24":"#3f5a2a"; mapCtx.fill();  // land
+  // jungle biome (darker green disc, clipped to the island)
+  mapCtx.save(); mapCtx.beginPath(); mapCtx.arc(cx,cz,WORLD*sc,0,7); mapCtx.clip();
+  mapCtx.beginPath(); mapCtx.arc(toX(JUNGLE_CX),toZ(JUNGLE_CZ),JUNGLE_R*sc,0,7); mapCtx.fillStyle="#1c6b2c"; mapCtx.fill();
+  mapCtx.restore();
+  mapCtx.font="bold 15px system-ui,Arial"; mapCtx.textAlign="center"; mapCtx.fillStyle="#bfeacb";
+  mapCtx.fillText("🌴 Джунглі", toX(JUNGLE_CX), toZ(JUNGLE_CZ));
+  // mountain
+  mapCtx.beginPath(); mapCtx.arc(cx,cz,MTN_R*sc,0,7); mapCtx.fillStyle="rgba(210,218,236,.7)"; mapCtx.fill();
+  mapCtx.fillStyle="#3a4560"; mapCtx.fillText("▲ Гора", cx, cz);
+  // houses
+  for(const h of houses){ const hx=toX(h.cx), hz=toZ(h.cz);
+    mapCtx.fillStyle="#c07b3a"; mapCtx.fillRect(hx-3,hz-3,6,6);
+    mapCtx.strokeStyle="#ffe0a0"; mapCtx.lineWidth=1; mapCtx.strokeRect(hx-3,hz-3,6,6); }
+  // chests (unopened)
+  mapCtx.fillStyle="#ffd54a";
+  for(const c of chests){ if(!c.opened) mapCtx.fillRect(toX(c.x)-1.5,toZ(c.z)-1.5,3,3); }
+  // cars
+  mapCtx.fillStyle="#e06a4a";
+  for(const car of cars){ mapCtx.fillRect(toX(car.x)-2,toZ(car.z)-2,4,4); }
+  // zombies
+  mapCtx.fillStyle="#7bd45a";
+  for(const b of bots){ if(b.alive && !b.boss) mapCtx.fillRect(toX(b.x)-1.5,toZ(b.z)-1.5,3,3); }
+  mapCtx.fillStyle="#ff4d6d";
+  for(const b of bots){ if(b.alive && b.boss){ mapCtx.beginPath(); mapCtx.arc(toX(b.x),toZ(b.z),4,0,7); mapCtx.fill(); } }
+  // secret bunker marker
+  { const bx=toX(BUNKER_X), bz=toZ(BUNKER_Z);
+    mapCtx.fillStyle="#ff5da0"; mapCtx.beginPath();
+    for(let i=0;i<6;i++){ const a=i/6*6.283-Math.PI/2; const px=bx+Math.cos(a)*7, py=bz+Math.sin(a)*7; i?mapCtx.lineTo(px,py):mapCtx.moveTo(px,py); }
+    mapCtx.closePath(); mapCtx.fill();
+    mapCtx.strokeStyle="#2a0016"; mapCtx.lineWidth=1.5; mapCtx.stroke();
+    mapCtx.fillStyle="#ffd0e4"; mapCtx.font="bold 12px system-ui,Arial"; mapCtx.fillText("Бункер", bx, bz-11); }
+  // teammates
+  if(net.online){ for(const pr of net.peers.values()){
+    const px=toX(pr.tx), pz=toZ(pr.tz);
+    mapCtx.fillStyle="#5ee0b0"; mapCtx.beginPath(); mapCtx.arc(px,pz,5,0,7); mapCtx.fill();
+    if(pr.name){ mapCtx.font="bold 12px system-ui,Arial"; mapCtx.lineWidth=3; mapCtx.strokeStyle="rgba(0,0,0,.8)";
+      mapCtx.strokeText(pr.name.slice(0,12),px,pz-8); mapCtx.fillStyle="#c9ffe9"; mapCtx.fillText(pr.name.slice(0,12),px,pz-8); } } }
+  // player + facing
+  const pX=toX(player.pos.x), pZ=toZ(player.pos.z);
+  mapCtx.strokeStyle="#22e3ff"; mapCtx.lineWidth=2; mapCtx.beginPath();
+  mapCtx.moveTo(pX,pZ); mapCtx.lineTo(pX-Math.sin(player.yaw)*16, pZ-Math.cos(player.yaw)*16); mapCtx.stroke();
+  mapCtx.fillStyle="#22e3ff"; mapCtx.beginPath(); mapCtx.arc(pX,pZ,5,0,7); mapCtx.fill();
+  mapCtx.strokeStyle="#0a2233"; mapCtx.lineWidth=1.5; mapCtx.stroke();
+}
+
 // ===================================================================
 //  Update loop
 // ===================================================================
@@ -3658,7 +3750,7 @@ function update(dt){
   if(keys["KeyA"]||keys["ArrowLeft"]) mx-=1; if(keys["KeyD"]||keys["ArrowRight"]) mx+=1;
   // On a ladder, W/S climb instead of walking (until you reach the top).
   if(climbingBelowTop) mz=0;
-  if(crafting||truckStoring||invOpen||furnaceOpen){ mx=0; mz=0; }   // frozen while a menu is open
+  if(crafting||truckStoring||invOpen||furnaceOpen||mapOpen){ mx=0; mz=0; }   // frozen while a menu is open
   const yaw=player.yaw;
   // forward/right in world
   let wx=0,wz=0;
@@ -3862,6 +3954,7 @@ function update(dt){
   if(toastT>0){ toastT-=dt; if(toastT<=0) document.getElementById("toast").style.opacity=0; }
 
   drawMini();
+  if(mapOpen) drawFullMap();
 }
 
 // ===================================================================
@@ -4201,6 +4294,8 @@ document.getElementById("againBtn").addEventListener("click",()=>{ initAudio(); 
 document.getElementById("craftClose").addEventListener("click",closeCraft);
 document.getElementById("invClose").addEventListener("click",closeInv);
 document.getElementById("furnaceClose").addEventListener("click",closeFurnace);
+document.getElementById("musicBtn").addEventListener("click",()=>{ initAudio(); toggleMusic();
+  document.getElementById("musicBtn").style.opacity = (typeof music!=="undefined"&&music.on)?"1":"0.45"; });
 // floating button: reload for a fresh procedural world (drops the room -> new random seed)
 document.getElementById("fab").addEventListener("click",()=>{
   const u=new URL(location.href); u.searchParams.delete("room"); u.searchParams.set("_", Date.now());
