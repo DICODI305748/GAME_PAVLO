@@ -676,6 +676,21 @@ function buildBushInstances(){
     m.compose(p,q,s); inst.setMatrixAt(i,m); }
   inst.instanceMatrix.needsUpdate=true; staticGroup.add(inst);
 }
+// Darken the jungle floor: a soft-edged dark disc laid just over the grass.
+function makeJungleFloor(){
+  const cv=document.createElement("canvas"); cv.width=cv.height=256; const c=cv.getContext("2d");
+  const grad=c.createRadialGradient(128,128,16,128,128,128);
+  grad.addColorStop(0,   "rgba(8,22,11,0.72)");
+  grad.addColorStop(0.75,"rgba(10,26,13,0.6)");
+  grad.addColorStop(1,   "rgba(10,26,13,0)");
+  c.fillStyle=grad; c.fillRect(0,0,256,256);
+  const tex=new THREE.CanvasTexture(cv);
+  const mat=new THREE.MeshBasicMaterial({map:tex, transparent:true, depthWrite:false});
+  const disc=new THREE.Mesh(new THREE.CircleGeometry(JUNGLE_R*1.08, 56), mat);
+  disc.rotation.x=-Math.PI/2; disc.position.set(JUNGLE_CX, 0.06, JUNGLE_CZ);
+  disc.renderOrder=2; disc.receiveShadow=false;
+  staticGroup.add(disc);
+}
 
 // Trees — two kinds for variety
 function makeTree(x,z,r){
@@ -791,6 +806,7 @@ function placeVegetation(){
   }
   // (Furnaces are no longer scattered on the map — the player BUILDS them in build mode, key 0.)
   buildBushInstances();   // batch all jungle bushes into a single instanced draw call
+  makeJungleFloor();      // darken the jungle ground
   // freeze the freshly-placed static props so they don't recompute matrices each frame
   staticGroup.updateMatrixWorld(true);
   staticGroup.traverse(o=>{ if(!o.userData.anim) o.matrixAutoUpdate=false; });
