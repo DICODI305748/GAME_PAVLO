@@ -581,6 +581,8 @@ const OAK_MAT  =new THREE.MeshStandardMaterial({color:0x4a9e4a,roughness:1});
 
 // ---- 3D prop models (.glb) for trees, rocks and iron ore ----
 let TREE_MODEL=null, ROCK_MODEL=null, IRON_MODEL=null, FURNACE_MODEL=null, SANDPILE_MODEL=null, SHOVEL_HELD=null;
+let GIANT_TREE_MODEL=null, MEAT_MODEL=null, BUNKER_MODEL=null, SNIPER_MODEL=null;   // uploaded jungle/bunker/flesh models
+let PANDA_MODEL=null, PANDA_CLIP=null;                                              // rigged+animated panda
 let SHOVEL_ROT=[-1.15, 0.3, 0.15];   // held shovel orientation (blade forward, scoop up)
 let furnaces=[];   // bonfire smelters {mesh,x,z,y} — smelt sand 🏖️ into glass 🔷 (E)
 function loadProp(url, targetH, onDone){
@@ -626,41 +628,47 @@ const J_BAMBOO=new THREE.MeshStandardMaterial({color:0x8fb84a,roughness:.9});
 const J_BUSH =new THREE.MeshStandardMaterial({color:0x276b2c,roughness:1,flatShading:true});
 const J_BUSH2=new THREE.MeshStandardMaterial({color:0x347d33,roughness:1,flatShading:true});
 let jungleTreeCount=0, bambooCount=0, bushCount=0;
-const JTREE_CAP=340, BAMBOO_CAP=420, BUSH_CAP=900;
+const JTREE_CAP=230, BAMBOO_CAP=300, BUSH_CAP=2600;   // bushes are ONE instanced draw call, so we can pack lots for density
 function makeGiantTree(x,z){
+  // uploaded lowpoly PSX jungle tree (single group, no shadow) — much cheaper than the old procedural one
+  if(GIANT_TREE_MODEL){ const sc=wr(0.85,1.5); placeProp(GIANT_TREE_MODEL, x, z, sc, "wood", 7, 1.2*sc); return; }
   const g=new THREE.Group();
   const h=wr(17,27);
   const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.65,1.25,h,7), J_TRUNK);
-  trunk.position.y=h/2; trunk.castShadow=true; g.add(trunk);
-  // a couple of buttress roots for a jungle look
-  for(let i=0;i<3;i++){ const a=i/3*6.28; const r=new THREE.Mesh(new THREE.ConeGeometry(0.5,2.4,5), J_TRUNK);
-    r.position.set(Math.cos(a)*1.0,1.1,Math.sin(a)*1.0); r.rotation.z=Math.cos(a)*0.5; r.rotation.x=-Math.sin(a)*0.5; g.add(r); }
-  // big leafy canopy
-  for(let i=0;i<5;i++){ const rr=wr(4.5,7.5); const leaf=new THREE.Mesh(new THREE.IcosahedronGeometry(rr,0), (i&1)?J_LEAF:J_LEAF2);
-    leaf.position.set(wr(-3.5,3.5), h-3+wr(-1,4), wr(-3.5,3.5)); leaf.castShadow=true; g.add(leaf); }
+  trunk.position.y=h/2; g.add(trunk);
+  for(let i=0;i<4;i++){ const rr=wr(4.5,7.5); const leaf=new THREE.Mesh(new THREE.IcosahedronGeometry(rr,0), (i&1)?J_LEAF:J_LEAF2);
+    leaf.position.set(wr(-3.5,3.5), h-3+wr(-1,4), wr(-3.5,3.5)); g.add(leaf); }
   g.position.set(x,0,z); g.scale.setScalar(wr(0.9,1.5)); g.rotation.y=wr(0,6.28);
-  staticGroup.add(g); trunk.updateMatrixWorld();
-  bulletMeshes.push(trunk);
+  staticGroup.add(g); trunk.updateMatrixWorld(); bulletMeshes.push(trunk);
   const col=addBoxCollider(x,z,1.3,1.3);
   trunk.userData.harvest="wood"; trunk.userData.hp=7; trunk.userData.rootGroup=g; trunk.userData.col=col;
 }
 function makeBamboo(x,z){
   const g=new THREE.Group();
-  const n=3+((wrand()*4)|0);
+  const n=3+((wrand()*3)|0);
   for(let i=0;i<n;i++){ const hh=wr(7,13), r=0.16;
-    const st=new THREE.Mesh(new THREE.CylinderGeometry(r,r*1.15,hh,6), J_BAMBOO);
+    const st=new THREE.Mesh(new THREE.CylinderGeometry(r,r*1.15,hh,5), J_BAMBOO);
     st.position.set(wr(-1.3,1.3), hh/2, wr(-1.3,1.3)); st.rotation.z=wr(-0.09,0.09); st.rotation.x=wr(-0.09,0.09);
-    st.castShadow=true; g.add(st); }
+    st.castShadow=false; g.add(st); }
   g.position.set(x,0,z); staticGroup.add(g);
   const mesh=g.children[0]; mesh.updateMatrixWorld(); bulletMeshes.push(mesh);
   const col=addBoxCollider(x,z,1.0,1.0);
   mesh.userData.harvest="wood"; mesh.userData.hp=4; mesh.userData.rootGroup=g; mesh.userData.col=col;
 }
-function makeBush(x,z){
-  const g=new THREE.Group();
-  for(let i=0;i<3;i++){ const rr=wr(0.7,1.6); const b=new THREE.Mesh(new THREE.IcosahedronGeometry(rr,0), (i&1)?J_BUSH:J_BUSH2);
-    b.position.set(wr(-1.1,1.1), rr*0.55, wr(-1.1,1.1)); b.castShadow=true; g.add(b); }
-  g.position.set(x,0,z); g.rotation.y=wr(0,6.28); g.scale.setScalar(wr(0.8,1.5)); staticGroup.add(g);
+// Bushes are batched into ONE InstancedMesh (a single draw call for the whole jungle floor).
+const bushTransforms=[];
+function makeBush(x,z){ bushTransforms.push([x, z, wr(0.5,1.15), wr(0,6.28)]); }
+function buildBushInstances(){
+  if(!bushTransforms.length) return;
+  const geo=new THREE.IcosahedronGeometry(1,0);
+  const mat=new THREE.MeshStandardMaterial({color:0x2c7231,roughness:1,flatShading:true});
+  const inst=new THREE.InstancedMesh(geo, mat, bushTransforms.length);
+  inst.castShadow=false; inst.receiveShadow=false; inst.frustumCulled=false;
+  const m=new THREE.Matrix4(), q=new THREE.Quaternion(), p=new THREE.Vector3(), s=new THREE.Vector3(), e=new THREE.Euler();
+  for(let i=0;i<bushTransforms.length;i++){ const [bx,bz,bs,ry]=bushTransforms[i];
+    e.set(0,ry,0); q.setFromEuler(e); p.set(bx, bs*0.5, bz); s.set(bs,bs*0.8,bs);
+    m.compose(p,q,s); inst.setMatrixAt(i,m); }
+  inst.instanceMatrix.needsUpdate=true; staticGroup.add(inst);
 }
 
 // Trees — two kinds for variety
@@ -733,11 +741,11 @@ function placeVegetation(){
       // ---- Jungle biome: giant trees, bamboo clumps and DENSE undergrowth ----
       const jf=jungleFactor(jx,jz);
       if(jf>0.12){
-        if(jungleTreeCount<JTREE_CAP && wrand() < 0.20+jf*0.30){ makeGiantTree(jx,jz); jungleTreeCount++; }
-        else if(bambooCount<BAMBOO_CAP && wrand() < 0.30+jf*0.25){ makeBamboo(jx,jz); bambooCount++; }
-        // lots of thickets/bushes filling the floor
-        for(let k=0;k<3;k++){ if(bushCount<BUSH_CAP && wrand() < 0.28+jf*0.35){
-          makeBush(jx+wr(-7,7), jz+wr(-7,7)); bushCount++; } }
+        if(jungleTreeCount<JTREE_CAP && wrand() < 0.30+jf*0.35){ makeGiantTree(jx,jz); jungleTreeCount++; }
+        else if(bambooCount<BAMBOO_CAP && wrand() < 0.34+jf*0.30){ makeBamboo(jx,jz); bambooCount++; }
+        // dense thickets covering the jungle floor (instanced -> cheap)
+        for(let k=0;k<6;k++){ if(bushCount<BUSH_CAP && wrand() < 0.42+jf*0.35){
+          makeBush(jx+wr(-8,8), jz+wr(-8,8)); bushCount++; } }
         continue;   // no normal trees/rocks inside the jungle
       }
       // trees grow ALL OVER the island (thin everywhere, denser in the woods)
@@ -776,6 +784,7 @@ function placeVegetation(){
     }
   }
   // (Furnaces are no longer scattered on the map — the player BUILDS them in build mode, key 0.)
+  buildBushInstances();   // batch all jungle bushes into a single instanced draw call
   // freeze the freshly-placed static props so they don't recompute matrices each frame
   staticGroup.updateMatrixWorld(true);
   staticGroup.traverse(o=>{ if(!o.userData.anim) o.matrixAutoUpdate=false; });
@@ -797,9 +806,11 @@ function makeFurnaceMesh(){
 // Trees/rocks/iron use .glb models that load asynchronously — place the vegetation
 // once the models are ready (or right away, with code shapes, if there's no loader).
 (function(){
-  let pending=6, done=false;
+  let pending=7, done=false;
   const go=()=>{ if(!done){ done=true; placeVegetation(); } };
   const ready=()=>{ if(--pending<=0) go(); };
+  // jungle giant tree (uploaded lowpoly PSX model) — no shadow, for performance
+  loadProp("models/jungle_tree.glb", 22, m=>{ GIANT_TREE_MODEL=m; if(m) m.traverse(o=>{ if(o.isMesh) o.castShadow=false; }); ready(); });
   loadProp("models/tree.glb", 9,   m=>{ TREE_MODEL=m; ready(); });
   loadProp("models/rock.glb", 4.5, m=>{ ROCK_MODEL=m; ready(); });
   loadProp("models/iron.glb", 4,   m=>{ IRON_MODEL=m; ready(); });
@@ -807,7 +818,24 @@ function makeFurnaceMesh(){
   loadProp("models/furnace.glb", 1.5, m=>{ FURNACE_MODEL=m; ready(); });
   loadProp("models/sand_pile.glb", 1.2, m=>{ SANDPILE_MODEL=m; ready(); });
   loadProp("models/shovel.glb", 1.0, m=>{ SHOVEL_HELD=m; });   // held viewmodel for the 🪣 shovel (not gated on vegetation)
+  loadProp("models/meat.glb", 0.7, m=>{ MEAT_MODEL=m; });      // flesh chunks thrown by the boss
+  loadProp("models/zombie_sniper.glb", 2.2, m=>{ SNIPER_MODEL=m; if(m) m.traverse(o=>{ if(o.isMesh){ o.castShadow=false; } }); });
   setTimeout(go, 25000);  // safety net so vegetation always appears even if a model stalls (generous for slow connections)
+})();
+// Panda (rigged+animated) and the bunker model load on their own; the bunker is built once its model is ready.
+(function(){
+  if(typeof THREE.GLTFLoader==="undefined"){ try{ buildBunker(); }catch(e){} return; }
+  new THREE.GLTFLoader().load("models/panda.glb", g=>{
+    const s=g.scene; const box=new THREE.Box3().setFromObject(s), sz=new THREE.Vector3(); box.getSize(sz);
+    const sc=2.3/(sz.y||1); const inner=new THREE.Group(); inner.add(s); inner.scale.setScalar(sc);
+    inner.updateMatrixWorld(true); const b2=new THREE.Box3().setFromObject(inner); inner.position.y-=b2.min.y;
+    s.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.frustumCulled=false; } });
+    const wrap=new THREE.Group(); wrap.add(inner);
+    PANDA_MODEL=wrap; PANDA_CLIP=(g.animations&&g.animations[0])||null;
+  }, undefined, ()=>{});
+  let built=false; const buildOnce=()=>{ if(built)return; built=true; try{ buildBunker(); }catch(e){ console.warn("bunker build failed",e); } };
+  new THREE.GLTFLoader().load("models/bunker.glb", g=>{ BUNKER_MODEL=g.scene; buildOnce(); }, undefined, ()=>buildOnce());
+  setTimeout(buildOnce, 20000);   // fallback: build procedurally if the model stalls
 })();
 
 // Pre-built houses (loot landmarks) — real walls with a doorway + roof
@@ -1609,7 +1637,7 @@ const net = {
     if(this.isHost()){
       this.snapT-=dt;
       if(this.snapT<=0){ this.snapT=0.14;
-        const zs=[]; for(const b of bots){ if(b.alive && !b.flesh) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0, b.panda?1:0]); }
+        const zs=[]; for(const b of bots){ if(b.alive && !b.flesh) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0, b.panda?1:0, b.sniper?1:0]); }
         this.send({t:"zsnap", z:zs, phase, night:nightNum, clock:Math.round(clockT)});
       }
     } else {
@@ -1729,11 +1757,11 @@ function playAvatarShoot(mesh){ playAvatarOnce(mesh,"shoot",380,1.3); } // brief
 // Client: reconcile zombies from a host snapshot.
 function applyZSnap(m){
   const seen=new Set();
-  for(const [nid,x,z,hp,boss,panda] of m.z){
+  for(const [nid,x,z,hp,boss,panda,sniper] of m.z){
     seen.add(nid);
     let b=bots.find(z2=>z2.nid===nid);
-    if(!b){ const mesh=makeBotMesh(boss?0x7a1f1f:0x5a8a3a, !!boss, !!panda); mesh.position.set(x,0,z); dynGroup.add(mesh);
-      b={mesh,nid,x,z,y:0,alive:true,hp,maxHp:hp,speed:0,dmg:0,atkT:0,hitFlash:0,wobble:0,lunge:0,boss:!!boss,panda:!!panda,remote:true}; bots.push(b); drawHB(b); }
+    if(!b){ const mesh=makeBotMesh(boss?0x7a1f1f:0x5a8a3a, !!boss, !!panda, !!sniper); mesh.position.set(x,0,z); dynGroup.add(mesh);
+      b={mesh,nid,x,z,y:0,alive:true,hp,maxHp:hp,speed:0,dmg:0,atkT:0,hitFlash:0,wobble:0,lunge:0,boss:!!boss,panda:!!panda,sniper:!!sniper,remote:true}; bots.push(b); drawHB(b); }
     b.tx=x; b.tz=z; b.hp=hp; if((boss||panda)&&b.maxHp<hp) b.maxHp=hp; drawHB(b);
   }
   // remove zombies no longer in snapshot
@@ -2271,9 +2299,17 @@ function upgradeAimed(){
 // ===================================================================
 //  Bots
 // ===================================================================
-function makeBotMesh(color, boss, panda){
+function makeBotMesh(color, boss, panda, sniper){
   const g=new THREE.Group();
-  if(panda && !boss){
+  if(sniper && !boss && SNIPER_MODEL){
+    const m=SNIPER_MODEL.clone(true); m.traverse(o=>{ if(o.isMesh) o.castShadow=false; }); g.add(m); g.userData.sniper=true;
+  } else if(panda && !boss && PANDA_MODEL && THREE.SkeletonUtils && THREE.SkeletonUtils.clone){
+    // uploaded rigged + animated panda
+    const clone=THREE.SkeletonUtils.clone(PANDA_MODEL); g.add(clone);
+    if(PANDA_CLIP && THREE.AnimationMixer){ const mx=new THREE.AnimationMixer(clone);
+      const act=mx.clipAction(PANDA_CLIP); act.play(); act.time=Math.random()*(PANDA_CLIP.duration||1); g.userData.mixer=mx; }
+    g.userData.panda=true;
+  } else if(panda && !boss){
     // Panda zombie — chunky white body with black ears/patches/limbs (rare)
     const white=new THREE.MeshStandardMaterial({color:0xf2f2ec,roughness:.9});
     const black=new THREE.MeshStandardMaterial({color:0x181818,roughness:.9});
@@ -2311,8 +2347,8 @@ function makeBotMesh(color, boss, panda){
     g.userData.hbCanvas=cv; g.userData.hbTex=tex; g.userData.hbSpr=spr;
     return g;
   }
-  if(g.userData.panda){
-    // panda body already built above — fall through to the shared health bar
+  if(g.userData.panda || g.userData.sniper){
+    // panda/sniper body already built above — fall through to the shared health bar
   } else if(ZOMBIE_MODEL){
     // clone the rigged model (SkeletonUtils rebinds the skeleton so each zombie
     // animates independently) and play its walk clip
@@ -2378,12 +2414,13 @@ function spawnWave(night){
     let x=cx+Math.cos(ang)*r, z=cz+Math.sin(ang)*r;
     const rr=Math.hypot(x,z); if(rr>WORLD-10){ x=x/rr*(WORLD-10); z=z/rr*(WORLD-10); }   // stay on land
     if(Math.hypot(x,z)<MTN_R+20){ const s=(MTN_R+20)/Math.max(1,Math.hypot(x,z)); x*=s; z*=s; } // off the mountain
-    const isPanda = Math.random()<0.045;   // rare panda zombie in the horde 🐼
-    const mesh=makeBotMesh(tints[i%tints.length], false, isPanda);
+    const isPanda = false;   // pandas only live in the jungle now (spawned by spawnAmbientZombies)
+    const isSniper = Math.random()<0.08;   // occasional "sniper" zombie variant (uploaded model)
+    const mesh=makeBotMesh(tints[i%tints.length], false, isPanda, isSniper);
     mesh.position.set(x,0,z); dynGroup.add(mesh);
     const hpP=isPanda?hpBase*2.6:hpBase;
     const z0={
-      mesh, x, z, y:0, alive:true, nid:++zid, panda:isPanda,
+      mesh, x, z, y:0, alive:true, nid:++zid, panda:isPanda, sniper:isSniper,
       hp:hpP*rand(0.85,1.2), maxHp:hpP*1.2,
       speed:(isPanda?spd*0.82:spd)*rand(0.85,1.15), dmg:(isPanda?dmgBase*1.7:dmgBase)*rand(0.85,1.15),
       atkT:0, hitFlash:0, target:null, wobble:rand(0,6.28),
@@ -2436,8 +2473,8 @@ function spawnAmbientZombies(){
       for(let k=0;k<n;k++) spawnGuardZombie(h.cx+rand(-3.5,3.5), h.cz+rand(-3.5,3.5), {});
     }
   }
-  // rare jungle pandas 🐼 (1–3), wandering the thicket
-  const pandas=1+Math.floor(Math.random()*3);
+  // jungle pandas 🐼 (3–6) — they ONLY live in the jungle
+  const pandas=3+Math.floor(Math.random()*4);
   for(let i=0;i<pandas;i++){
     const a=rand(0,6.28), r=rand(0, JUNGLE_R*0.8);
     const x=JUNGLE_CX+Math.cos(a)*r, z=JUNGLE_CZ+Math.sin(a)*r;
@@ -2458,15 +2495,28 @@ function buildBunker(){
   // ---- above-ground entrance ----
   const gy=mountainHeightAt(BUNKER_X,BUNKER_Z);   // (groundHeightAt needs `player`, which isn't ready at load)
   const e=new THREE.Group(); e.position.set(BUNKER_X,gy,BUNKER_Z);
-  const base=new THREE.Mesh(new THREE.BoxGeometry(7,3,7),CONC); base.position.y=1.2; base.castShadow=base.receiveShadow=true; e.add(base);
-  const rim=new THREE.Mesh(new THREE.CylinderGeometry(1.8,2.0,1.1,14),CONC2); rim.position.y=2.9; e.add(rim);
-  const hatch=new THREE.Mesh(new THREE.CylinderGeometry(1.55,1.55,0.35,14),STEEL); hatch.position.y=3.5; e.add(hatch);
-  const wheel=new THREE.Mesh(new THREE.TorusGeometry(0.7,0.12,8,16),STEEL); wheel.rotation.x=Math.PI/2; wheel.position.y=3.72; e.add(wheel);
-  const sign=new THREE.Mesh(new THREE.PlaneGeometry(3.0,1.2), new THREE.MeshStandardMaterial({color:0xffcc00,emissive:0x3a2c00,emissiveIntensity:.6,side:THREE.DoubleSide}));
-  sign.position.set(0,2.1,3.56); e.add(sign);
-  const lamp=new THREE.PointLight(0xffd27a,0.7,12,2); lamp.position.set(0,4.2,0); e.add(lamp);
+  if(BUNKER_MODEL){
+    const m=BUNKER_MODEL.clone(true);
+    const box=new THREE.Box3().setFromObject(m), sz=new THREE.Vector3(); box.getSize(sz);
+    const sc=13/(Math.max(sz.x,sz.z,sz.y)||1); m.scale.setScalar(sc);
+    m.updateMatrixWorld(true); const b2=new THREE.Box3().setFromObject(m); m.position.y-=b2.min.y;
+    m.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false; } });
+    e.add(m); e.userData.modelTop=(b2.max.y-b2.min.y);
+  } else {
+    const base=new THREE.Mesh(new THREE.BoxGeometry(7,3,7),CONC); base.position.y=1.2; base.castShadow=base.receiveShadow=true; e.add(base);
+    const rim=new THREE.Mesh(new THREE.CylinderGeometry(1.8,2.0,1.1,14),CONC2); rim.position.y=2.9; e.add(rim);
+    const hatch=new THREE.Mesh(new THREE.CylinderGeometry(1.55,1.55,0.35,14),STEEL); hatch.position.y=3.5; e.add(hatch);
+    const wheel=new THREE.Mesh(new THREE.TorusGeometry(0.7,0.12,8,16),STEEL); wheel.rotation.x=Math.PI/2; wheel.position.y=3.72; e.add(wheel);
+  }
+  // a small floating warning sign above the bunker so it's easy to spot
+  const signY=(e.userData.modelTop||4)+2.0;
+  for(const ry of [0, Math.PI/2]){   // two crossed planes so it's visible from any angle
+    const sign=new THREE.Mesh(new THREE.PlaneGeometry(1.8,0.8), new THREE.MeshStandardMaterial({color:0xffcc00,emissive:0x3a2c00,emissiveIntensity:.7,side:THREE.DoubleSide}));
+    sign.position.set(0,signY,0); sign.rotation.y=ry; e.add(sign);
+  }
+  const lamp=new THREE.PointLight(0xffd27a,0.9,18,2); lamp.position.set(0,signY,0); e.add(lamp);
   staticGroup.add(e); e.updateMatrixWorld(true);
-  addBoxCollider(BUNKER_X,BUNKER_Z,3.6,3.6);
+  addBoxCollider(BUNKER_X,BUNKER_Z,4.0,4.0);
   // ---- sealed underground arena (far off-map) ----
   const A=new THREE.Group(); A.position.set(ARENA_X,0,ARENA_Z);
   const R=ARENA_R, WH=16;
@@ -2552,9 +2602,10 @@ function throwFlesh(){
   const start=new THREE.Vector3(b.x, 6.0, b.z);
   const tx=player.pos.x, tz=player.pos.z;
   const g=new THREE.Group();
-  const chunk=new THREE.Mesh(new THREE.IcosahedronGeometry(0.55,0),
-    new THREE.MeshStandardMaterial({color:0xb0242a,roughness:.8,emissive:0x2a0004,emissiveIntensity:.5,flatShading:true}));
-  g.add(chunk); g.position.copy(start); dynGroup.add(g);
+  if(MEAT_MODEL){ const chunk=MEAT_MODEL.clone(true); chunk.scale.setScalar(1.4); g.add(chunk); }
+  else { const chunk=new THREE.Mesh(new THREE.IcosahedronGeometry(0.55,0),
+    new THREE.MeshStandardMaterial({color:0xb0242a,roughness:.8,emissive:0x2a0004,emissiveIntensity:.5,flatShading:true})); g.add(chunk); }
+  g.position.copy(start); dynGroup.add(g);
   // ballistic arc: start y≈6, land near the player's chest (y≈2) after time t
   const dx=tx-b.x, dz=tz-b.z, dist=Math.hypot(dx,dz)||1;
   const t=clamp(dist/22 + 0.5, 0.5, 1.8);
@@ -2590,7 +2641,6 @@ function updateFleshBoss(dt){
     }
   }
 }
-try{ buildBunker(); }catch(e){ console.warn("bunker build failed", e); }
 
 // ===================================================================
 //  Chests / loot
