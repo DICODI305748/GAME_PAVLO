@@ -1503,7 +1503,11 @@ const net = {
       pr.mesh.position.z += (pr.tz-pr.mesh.position.z)*Math.min(1,dt*12);
       const yTarget = pr.yaw + (pr.mesh.userData.yawOff||0);
       pr.mesh.rotation.y += (yTarget-pr.mesh.rotation.y)*Math.min(1,dt*12);
-      setAvatarAnim(pr.mesh, mv>0.05 ? "run" : "idle");
+      // airborne detection: ty spiking above a slowly-tracked ground level => teammate is jumping
+      if(pr.groundY==null) pr.groundY=pr.ty;
+      const airborne = pr.ty > pr.groundY + 0.7;
+      if(!airborne) pr.groundY += (pr.ty-pr.groundY)*Math.min(1,dt*3);   // follow real ground (slopes/floors) when grounded
+      setAvatarAnim(pr.mesh, airborne ? "jump" : (mv>0.05 ? "run" : "idle"));
       if(pr.mesh.userData.mixer) pr.mesh.userData.mixer.update(dt);
     }
     // host broadcasts zombies + day/night ~7/s
@@ -1532,9 +1536,10 @@ function stripRootMotion(clip){
   clip.tracks = clip.tracks.filter(t=>!(/Hips?\.position$/i.test(t.name) || /:Hips\.position$/i.test(t.name)));
   return clip;
 }
-function loadAvatarClip(url,name){
-  if(typeof THREE.FBXLoader==="undefined") return;
-  try{ new THREE.FBXLoader().load(url, o=>{ if(o.animations&&o.animations[0]){ o.animations[0].name=name; AVATAR_CLIPS[name]=stripRootMotion(o.animations[0]); } }, undefined, ()=>{}); }catch(e){}
+// Animation clips are pre-baked to small JSON (keyframes only) so co-op doesn't download
+// the huge source .fbx meshes — just the body rig (gunplay.fbx) carries a mesh + skeleton.
+function loadClipJSON(url,name){
+  fetch(url).then(r=>r.json()).then(j=>{ const c=THREE.AnimationClip.parse(j); c.name=name; AVATAR_CLIPS[name]=c; }).catch(()=>{});
 }
 function loadAvatarRig(){
   if(typeof THREE.FBXLoader==="undefined") return;
@@ -1550,10 +1555,9 @@ function loadAvatarRig(){
       const fb=new THREE.Box3().setFromObject(base); base.position.y -= fb.min.y;   // drop feet to y=0
       if(base.animations&&base.animations[0]){ base.animations[0].name="idle"; AVATAR_CLIPS.idle=stripRootMotion(base.animations[0]); }
       SOLDIER_RIG=base;
-      loadAvatarClip("anims/run.fbx","run");
-      loadAvatarClip("anims/shoot.fbx","shoot");
-      loadAvatarClip("anims/jump.fbx","jump");
-      loadAvatarClip("anims/hit.fbx","hit");     // "Shoved Reaction With Spin" — knockback when hit
+      loadClipJSON("anims/run.clip.json","run");
+      loadClipJSON("anims/jump.clip.json","jump");   // "Jumping_1" — plays when a teammate is airborne
+      loadClipJSON("anims/hit.clip.json","hit");     // "Shoved Reaction With Spin" — knockback when hit
     }, undefined, ()=>{});
   }catch(e){}
 }
