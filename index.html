@@ -433,7 +433,7 @@ function fbm(x,z){ return vnoise(x,z)*0.6 + vnoise(x*2.1+5.2,z*2.1+1.3)*0.3 + vn
 //  Renderer / Scene / Camera
 // ===================================================================
 const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:"high-performance"});
-renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));   // cap DPR — big win on hi-dpi screens
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.25));   // cap DPR — big win on hi-dpi screens
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -459,7 +459,7 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff3d6, 1.15);
 sun.position.set(120, 220, 90);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048,2048);
+sun.shadow.mapSize.set(1024,1024);
 sun.shadow.camera.near = 10; sun.shadow.camera.far = 380;
 sun.shadow.camera.left=-120; sun.shadow.camera.right=120;   // tighter shadow frustum around the player => far fewer shadow-casters
 sun.shadow.camera.top=120; sun.shadow.camera.bottom=-120;
@@ -749,7 +749,7 @@ let treeCount=0, rockCount=0, ironCount=0;
 // Low per-cell chance + high cap => the cap is (almost) never hit mid-loop, so trees
 // spread EVENLY across the whole island instead of filling one side and stopping.
 // The rock model is very high-poly, so cap how many rocks/iron are placed.
-const STEP=17, TREE_CAP=2000, ROCK_CAP=220, IRON_CAP=160;   // models simplified (rock ~2k, iron ~1k tris) -> plenty allowed
+const STEP=17, TREE_CAP=1200, ROCK_CAP=200, IRON_CAP=150;   // models simplified (rock ~2k, iron ~1k tris) -> plenty allowed
 const GRASS_CAP=110; let grassCount=0;                       // decorative grass clumps (~20k tris each) -> capped
 function placeVegetation(){
   for(let gx=-WORLD+18; gx<WORLD-18; gx+=STEP){
@@ -860,7 +860,7 @@ function makeFurnaceMesh(){
 })();
 // Panda (rigged+animated) and the bunker model load on their own; the bunker is built once its model is ready.
 (function(){
-  if(typeof THREE.GLTFLoader==="undefined"){ try{ buildBunker(); }catch(e){} return; }
+  if(typeof THREE.GLTFLoader==="undefined"){ setTimeout(()=>{ try{ buildBunker(); }catch(e){} }, 0); return; }
   new THREE.GLTFLoader().load("models/panda.glb", g=>{
     const s=g.scene; const box=new THREE.Box3().setFromObject(s), sz=new THREE.Vector3(); box.getSize(sz);
     const sc=2.3/(sz.y||1); const inner=new THREE.Group(); inner.add(s); inner.scale.setScalar(sc);
@@ -869,7 +869,8 @@ function makeFurnaceMesh(){
     const wrap=new THREE.Group(); wrap.add(inner);
     PANDA_MODEL=wrap; PANDA_CLIP=(g.animations&&g.animations[0])||null;
   }, undefined, ()=>{});
-  try{ buildBunker(); }catch(e){ console.warn("bunker build failed",e); }   // procedural bunker (no model needed)
+  // build the bunker on the next tick — deferred so the ARENA_* consts (declared later) are initialized
+  setTimeout(()=>{ try{ buildBunker(); }catch(e){ console.warn("bunker build failed",e); } }, 0);
 })();
 // Parasite monster (rigged) + its Mixamo clips — used as the bunker FLESH BOSS.
 let PARASITE_MODEL=null; const PARASITE_CLIPS={};
@@ -4080,7 +4081,7 @@ function animWorld(dt){
   // zombie walk animation — only update mixers for nearby zombies (perf)
   if(bots.length && player&&player.pos){ const px=player.pos.x, pz=player.pos.z;
     for(const b of bots){ if(!b.alive) continue;
-      const near=Math.abs(b.x-px)<120 && Math.abs(b.z-pz)<120; if(!near) continue;
+      const near=Math.abs(b.x-px)<80 && Math.abs(b.z-pz)<80; if(!near) continue;
       const mx=b.mesh.userData.mixer; if(mx){ mx.update(dt); }
       // the boss is a static mesh — animate it procedurally (lumbering sway + attack lunge)
       if(b.mesh.userData.boss){ const inner=b.mesh.children[0];
