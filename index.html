@@ -582,6 +582,7 @@ const OAK_MAT  =new THREE.MeshStandardMaterial({color:0x4a9e4a,roughness:1});
 // ---- 3D prop models (.glb) for trees, rocks and iron ore ----
 let TREE_MODEL=null, ROCK_MODEL=null, IRON_MODEL=null, FURNACE_MODEL=null, SANDPILE_MODEL=null, SHOVEL_HELD=null;
 let GIANT_TREE_MODEL=null, MEAT_MODEL=null, BUNKER_MODEL=null, SNIPER_MODEL=null;   // uploaded jungle/bunker/flesh models
+let BAMBOO_MODEL=null, BUSH_GEO=null, BUSH_MAT=null;                                // uploaded bamboo (harvestable) + bush (instanced)
 let PANDA_MODEL=null, PANDA_CLIP=null;                                              // rigged+animated panda
 let SHOVEL_ROT=[-1.15, 0.3, 0.15];   // held shovel orientation (blade forward, scoop up)
 let furnaces=[];   // bonfire smelters {mesh,x,z,y} — smelt sand 🏖️ into glass 🔷 (E)
@@ -628,7 +629,7 @@ const J_BAMBOO=new THREE.MeshStandardMaterial({color:0x8fb84a,roughness:.9});
 const J_BUSH =new THREE.MeshStandardMaterial({color:0x276b2c,roughness:1,flatShading:true});
 const J_BUSH2=new THREE.MeshStandardMaterial({color:0x347d33,roughness:1,flatShading:true});
 let jungleTreeCount=0, bambooCount=0, bushCount=0;
-const JTREE_CAP=230, BAMBOO_CAP=300, BUSH_CAP=2600;   // bushes are ONE instanced draw call, so we can pack lots for density
+const JTREE_CAP=190, BAMBOO_CAP=260, BUSH_CAP=1800;   // bushes are ONE instanced draw call; tuned for density vs. perf
 function makeGiantTree(x,z){
   // uploaded lowpoly PSX jungle tree (single group, no shadow) — much cheaper than the old procedural one
   if(GIANT_TREE_MODEL){ const sc=wr(0.85,1.5); placeProp(GIANT_TREE_MODEL, x, z, sc, "wood", 7, 1.2*sc); return; }
@@ -644,6 +645,8 @@ function makeGiantTree(x,z){
   trunk.userData.harvest="wood"; trunk.userData.hp=7; trunk.userData.rootGroup=g; trunk.userData.col=col;
 }
 function makeBamboo(x,z){
+  // uploaded lowpoly bamboo (harvestable); fall back to procedural stalks
+  if(BAMBOO_MODEL){ const sc=wr(0.9,1.5); placeProp(BAMBOO_MODEL, x, z, sc, "wood", 4, 0.9); return; }
   const g=new THREE.Group();
   const n=3+((wrand()*3)|0);
   for(let i=0;i<n;i++){ const hh=wr(7,13), r=0.16;
@@ -657,16 +660,19 @@ function makeBamboo(x,z){
 }
 // Bushes are batched into ONE InstancedMesh (a single draw call for the whole jungle floor).
 const bushTransforms=[];
-function makeBush(x,z){ bushTransforms.push([x, z, wr(0.5,1.15), wr(0,6.28)]); }
+function makeBush(x,z){ bushTransforms.push([x, z, wr(1.1,2.4), wr(0,6.28)]); }   // size = final height in units
 function buildBushInstances(){
   if(!bushTransforms.length) return;
-  const geo=new THREE.IcosahedronGeometry(1,0);
-  const mat=new THREE.MeshStandardMaterial({color:0x2c7231,roughness:1,flatShading:true});
+  let geo, mat, model;
+  if(BUSH_GEO && BUSH_MAT){ geo=BUSH_GEO; mat=BUSH_MAT; model=true; }   // uploaded bush (feet at y=0, ~1u tall)
+  else { geo=new THREE.IcosahedronGeometry(1,0); mat=new THREE.MeshStandardMaterial({color:0x2c7231,roughness:1,flatShading:true}); model=false; }
   const inst=new THREE.InstancedMesh(geo, mat, bushTransforms.length);
   inst.castShadow=false; inst.receiveShadow=false; inst.frustumCulled=false;
   const m=new THREE.Matrix4(), q=new THREE.Quaternion(), p=new THREE.Vector3(), s=new THREE.Vector3(), e=new THREE.Euler();
   for(let i=0;i<bushTransforms.length;i++){ const [bx,bz,bs,ry]=bushTransforms[i];
-    e.set(0,ry,0); q.setFromEuler(e); p.set(bx, bs*0.5, bz); s.set(bs,bs*0.8,bs);
+    e.set(0,ry,0); q.setFromEuler(e);
+    if(model){ p.set(bx,0,bz); s.set(bs,bs,bs); }               // model feet already at y=0
+    else { p.set(bx, bs*0.4, bz); s.set(bs*0.8,bs*0.65,bs*0.8); }
     m.compose(p,q,s); inst.setMatrixAt(i,m); }
   inst.instanceMatrix.needsUpdate=true; staticGroup.add(inst);
 }
@@ -806,11 +812,25 @@ function makeFurnaceMesh(){
 // Trees/rocks/iron use .glb models that load asynchronously — place the vegetation
 // once the models are ready (or right away, with code shapes, if there's no loader).
 (function(){
-  let pending=7, done=false;
+  let pending=9, done=false;
   const go=()=>{ if(!done){ done=true; placeVegetation(); } };
   const ready=()=>{ if(--pending<=0) go(); };
   // jungle giant tree (uploaded lowpoly PSX model) — no shadow, for performance
   loadProp("models/jungle_tree.glb", 22, m=>{ GIANT_TREE_MODEL=m; if(m) m.traverse(o=>{ if(o.isMesh) o.castShadow=false; }); ready(); });
+  loadProp("models/bamboo.glb", 9, m=>{ BAMBOO_MODEL=m; if(m) m.traverse(o=>{ if(o.isMesh) o.castShadow=false; }); ready(); });
+  // bush — extract one geometry+material so the whole jungle floor is ONE instanced draw
+  (function(){ if(typeof THREE.GLTFLoader==="undefined"){ ready(); return; }
+    new THREE.GLTFLoader().load("models/bush.glb", g=>{
+      let mesh=null; g.scene.traverse(o=>{ if(o.isMesh && !mesh) mesh=o; });
+      if(mesh){ mesh.updateWorldMatrix(true,true); const geo=mesh.geometry.clone(); geo.applyMatrix4(mesh.matrixWorld);
+        geo.computeBoundingBox(); const bb=geo.boundingBox, h=(bb.max.y-bb.min.y)||1;
+        const s=1/h; geo.scale(s,s,s); geo.computeBoundingBox();
+        const c=new THREE.Vector3(); geo.boundingBox.getCenter(c);
+        geo.translate(-c.x, -geo.boundingBox.min.y, -c.z);   // centre x/z, feet at y=0
+        BUSH_GEO=geo; BUSH_MAT=Array.isArray(mesh.material)?mesh.material[0]:mesh.material; }
+      ready();
+    }, undefined, ()=>ready());
+  })();
   loadProp("models/tree.glb", 9,   m=>{ TREE_MODEL=m; ready(); });
   loadProp("models/rock.glb", 4.5, m=>{ ROCK_MODEL=m; ready(); });
   loadProp("models/iron.glb", 4,   m=>{ IRON_MODEL=m; ready(); });
