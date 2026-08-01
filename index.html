@@ -283,11 +283,8 @@ if (typeof THREE === "undefined") {
 <script src="peerjs.min.js"></script>
 <!-- GLTFLoader: load .glb 3D models (e.g. the aircraft). Falls back to code shapes if missing. -->
 <script src="GLTFLoader.js"></script>
-<!-- SkeletonUtils: correctly clone rigged/animated models (the walking zombie). -->
+<!-- SkeletonUtils: correctly clone rigged/animated models (the walking zombie, teammate avatar). -->
 <script src="SkeletonUtils.js"></script>
-<!-- fflate + FBXLoader: load the rigged, animated soldier avatar (Mixamo .fbx). -->
-<script src="fflate.min.js"></script>
-<script src="FBXLoader.js"></script>
 <script>
 (() => {
 "use strict";
@@ -1512,7 +1509,7 @@ const net = {
       if(pr.groundY==null) pr.groundY=pr.ty;
       const airborne = pr.ty > pr.groundY + 0.7;
       if(!airborne) pr.groundY += (pr.ty-pr.groundY)*Math.min(1,dt*3);   // follow real ground (slopes/floors) when grounded
-      const name = airborne ? "jump" : (pr.mstate>=1 ? "run" : "idle");
+      const name = airborne ? "jump" : (pr.mstate===2 ? "run" : pr.mstate===1 ? "walk" : "idle");
       setAvatarAnim(pr.mesh, name);
       if(pr.mesh.userData.mixer) pr.mesh.userData.mixer.update(dt);
     }
@@ -1548,23 +1545,23 @@ function loadClipJSON(url,name){
   fetch(url).then(r=>r.json()).then(j=>{ const c=THREE.AnimationClip.parse(j); c.name=name; AVATAR_CLIPS[name]=c; }).catch(()=>{});
 }
 function loadAvatarRig(){
-  if(typeof THREE.FBXLoader==="undefined") return;
+  if(typeof THREE.GLTFLoader==="undefined") return;
   try{
-    new THREE.FBXLoader().load("anims/gunplay.fbx", base=>{
+    new THREE.GLTFLoader().load("anims/police.glb", gltf=>{
+      const base=gltf.scene;
+      // Mixamo bones in the .glb are named like "swat:Hips_02"; the baked clips use "swatHips" —
+      // strip the colon and the numeric suffix so the animation tracks bind by name.
+      base.traverse(o=>{ if(o.isBone){ o.name=o.name.replace(/:/g,"").replace(/_\d+$/,""); }
+                         if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; } });
       const box=new THREE.Box3().setFromObject(base), sz=new THREE.Vector3(); box.getSize(sz);
-      const s=1.95/(sz.y||180); base.scale.setScalar(s);   // Mixamo is ~180cm -> ~1.95 game units tall
-      // recolour the bare Mixamo mesh into a dark tactical soldier
-      const soldierMat=new THREE.MeshStandardMaterial({color:0x39432f,roughness:.92,metalness:.05,skinning:true});
-      const gearMat=new THREE.MeshStandardMaterial({color:0x20242a,roughness:.8,metalness:.2,skinning:true});
-      let mi=0; base.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; o.material=(mi++%2? gearMat:soldierMat); } });
-      base.updateMatrixWorld(true);
-      const fb=new THREE.Box3().setFromObject(base); base.position.y -= fb.min.y;   // drop feet to y=0
-      base.animations=[];   // all clips come from the baked JSON below, not the .fbx
-      SOLDIER_RIG=base;
-      loadClipJSON("anims/idle.clip.json","idle");   // Gunplay stance — standing still
-      loadClipJSON("anims/run.clip.json","run");     // Slow_Run — moving
-      loadClipJSON("anims/jump.clip.json","jump");   // Jumping — airborne
-      loadClipJSON("anims/hit.clip.json","hit");     // Shoved Reaction With Spin — knockback when hit
+      const s=1.95/(sz.y||180); base.scale.setScalar(s); base.updateMatrixWorld(true);  // ~1.95 units tall
+      const fb=new THREE.Box3().setFromObject(base); base.position.y -= fb.min.y;         // drop feet to y=0
+      SOLDIER_RIG=base;   // keep the police textures (no recolour)
+      loadClipJSON("anims/idle.clip.json","idle");   // Standing_Idle
+      loadClipJSON("anims/walk.clip.json","walk");   // Walking
+      loadClipJSON("anims/run.clip.json","run");     // Fast_Run
+      loadClipJSON("anims/shoot.clip.json","shoot"); // Shooting_1 (one-shot when firing)
+      loadClipJSON("anims/jump.clip.json","jump");   // Jumping_1 (airborne)
     }, undefined, ()=>{});
   }catch(e){}
 }
