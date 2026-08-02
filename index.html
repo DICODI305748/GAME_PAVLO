@@ -1340,6 +1340,29 @@ const ZOMBIE_FACE=0;                 // extra Y rotation so the model faces the 
   }catch(e){}
 })();
 
+// ---- Sprinter zombie ("Bob"): rigged + animated, runs VERY fast ----
+let SPRINTER_MODEL=null, SPRINTER_CLIP=null;
+(function loadSprinter(){
+  if(typeof THREE.GLTFLoader==="undefined") return;
+  try{
+    new THREE.GLTFLoader().load("models/sprinter.glb", (gltf)=>{
+      const src=gltf.scene;
+      src.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.receiveShadow=false;
+        const mats=Array.isArray(o.material)?o.material:[o.material];
+        for(const mt of mats){ if(mt){ mt.skinning=true; mt.side=THREE.DoubleSide;   // r128: skinning must be on for the rig to deform
+          if(mt.map){ mt.map.encoding=THREE.sRGBEncoding; mt.emissiveMap=mt.map; if(mt.emissive) mt.emissive.setRGB(1,1,1); mt.emissiveIntensity=0.35; }
+          mt.needsUpdate=true; } } } });
+      const inner=new THREE.Group(); inner.add(src); inner.updateWorldMatrix(true,true);
+      let box=new THREE.Box3().setFromObject(inner), size=new THREE.Vector3(); box.getSize(size);
+      const c=new THREE.Vector3(); box.getCenter(c);
+      const s=2.1/(size.y||1); inner.scale.setScalar(s);
+      inner.position.set(-c.x*s, -box.min.y*s, -c.z*s);
+      const wrap=new THREE.Group(); wrap.add(inner);
+      SPRINTER_MODEL=wrap; SPRINTER_CLIP=(gltf.animations&&gltf.animations[0])||null;
+    }, undefined, (err)=>console.warn("sprinter.glb failed", err));
+  }catch(e){}
+})();
+
 // ---- Boss zombie ("Blind Hunter"): a big static .glb, procedurally animated ----
 let BOSS_MODEL=null;
 (function loadBossModel(){
@@ -1715,7 +1738,7 @@ const net = {
     if(this.isHost()){
       this.snapT-=dt;
       if(this.snapT<=0){ this.snapT=0.14;
-        const zs=[]; for(const b of bots){ if(b.alive && !b.flesh) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0, b.panda?1:0, b.sniper?1:0, +(b.y||0).toFixed(1)]); }
+        const zs=[]; for(const b of bots){ if(b.alive && !b.flesh) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0, b.panda?1:0, b.sniper?1:0, +(b.y||0).toFixed(1), b.sprinter?1:0]); }
         this.send({t:"zsnap", z:zs, phase, night:nightNum, clock:Math.round(clockT)});
       }
     } else {
@@ -1836,11 +1859,11 @@ function playAvatarShoot(mesh){ playAvatarOnce(mesh,"shoot",380,1.3); } // brief
 // Client: reconcile zombies from a host snapshot.
 function applyZSnap(m){
   const seen=new Set();
-  for(const [nid,x,z,hp,boss,panda,sniper,y] of m.z){
+  for(const [nid,x,z,hp,boss,panda,sniper,y,sprinter] of m.z){
     seen.add(nid);
     let b=bots.find(z2=>z2.nid===nid);
-    if(!b){ const mesh=makeBotMesh(boss?0x7a1f1f:0x5a8a3a, !!boss, !!panda, !!sniper); mesh.position.set(x,y||0,z); dynGroup.add(mesh);
-      b={mesh,nid,x,z,y:y||0,alive:true,hp,maxHp:hp,speed:0,dmg:0,atkT:0,hitFlash:0,wobble:0,lunge:0,boss:!!boss,panda:!!panda,sniper:!!sniper,remote:true}; bots.push(b); drawHB(b); }
+    if(!b){ const mesh=makeBotMesh(boss?0x7a1f1f:0x5a8a3a, !!boss, !!panda, !!sniper, !!sprinter); mesh.position.set(x,y||0,z); dynGroup.add(mesh);
+      b={mesh,nid,x,z,y:y||0,alive:true,hp,maxHp:hp,speed:0,dmg:0,atkT:0,hitFlash:0,wobble:0,lunge:0,boss:!!boss,panda:!!panda,sniper:!!sniper,sprinter:!!sprinter,remote:true}; bots.push(b); drawHB(b); }
     b.tx=x; b.tz=z; b.ty=(y||0); b.hp=hp; if((boss||panda)&&b.maxHp<hp) b.maxHp=hp; drawHB(b);
   }
   // remove zombies no longer in snapshot
@@ -2576,9 +2599,16 @@ function upgradeAimed(){
 // ===================================================================
 //  Bots
 // ===================================================================
-function makeBotMesh(color, boss, panda, sniper){
+function makeBotMesh(color, boss, panda, sniper, sprinter){
   const g=new THREE.Group();
-  if(sniper && !boss && SNIPER_MODEL){
+  if(sprinter && !boss && SPRINTER_MODEL && THREE.SkeletonUtils && THREE.SkeletonUtils.clone){
+    // uploaded rigged + animated "Bob" sprinter — plays its run clip at speed
+    const clone=THREE.SkeletonUtils.clone(SPRINTER_MODEL); g.add(clone);
+    if(SPRINTER_CLIP && THREE.AnimationMixer){ const mx=new THREE.AnimationMixer(clone);
+      const act=mx.clipAction(SPRINTER_CLIP); act.play(); act.time=Math.random()*(SPRINTER_CLIP.duration||1);
+      mx.timeScale=1.6; g.userData.mixer=mx; }   // run animation plays fast to sell the sprint
+    g.userData.sprinter=true;
+  } else if(sniper && !boss && SNIPER_MODEL){
     const m=SNIPER_MODEL.clone(true); m.traverse(o=>{ if(o.isMesh) o.castShadow=false; }); g.add(m); g.userData.sniper=true;
   } else if(panda && !boss && PANDA_MODEL && THREE.SkeletonUtils && THREE.SkeletonUtils.clone){
     // uploaded rigged + animated panda
@@ -2624,8 +2654,8 @@ function makeBotMesh(color, boss, panda, sniper){
     g.userData.hbCanvas=cv; g.userData.hbTex=tex; g.userData.hbSpr=spr;
     return g;
   }
-  if(g.userData.panda || g.userData.sniper){
-    // panda/sniper body already built above — fall through to the shared health bar
+  if(g.userData.panda || g.userData.sniper || g.userData.sprinter){
+    // panda/sniper/sprinter body already built above — fall through to the shared health bar
   } else if(ZOMBIE_MODEL){
     // clone the rigged model (SkeletonUtils rebinds the skeleton so each zombie
     // animates independently) and play its walk clip
@@ -2693,13 +2723,14 @@ function spawnWave(night){
     if(Math.hypot(x,z)<MTN_R+20){ const s=(MTN_R+20)/Math.max(1,Math.hypot(x,z)); x*=s; z*=s; } // off the mountain
     const isPanda = false;   // pandas only live in the jungle now (spawned by spawnAmbientZombies)
     const isSniper = Math.random()<0.08;   // occasional "sniper" zombie variant (uploaded model)
-    const mesh=makeBotMesh(tints[i%tints.length], false, isPanda, isSniper);
+    const isSprinter = !isSniper && Math.random()<0.14;   // fast "Bob" runner zombie
+    const mesh=makeBotMesh(tints[i%tints.length], false, isPanda, isSniper, isSprinter);
     mesh.position.set(x,0,z); dynGroup.add(mesh);
-    const hpP=isPanda?hpBase*2.6:hpBase;
+    const hpP=isPanda?hpBase*2.6:(isSprinter?hpBase*0.7:hpBase);   // sprinters are fast but frail
     const z0={
-      mesh, x, z, y:0, alive:true, nid:++zid, panda:isPanda, sniper:isSniper,
+      mesh, x, z, y:0, alive:true, nid:++zid, panda:isPanda, sniper:isSniper, sprinter:isSprinter,
       hp:hpP*rand(0.85,1.2), maxHp:hpP*1.2,
-      speed:(isPanda?spd*0.82:spd)*rand(0.85,1.15), dmg:(isPanda?dmgBase*1.7:dmgBase)*rand(0.85,1.15),
+      speed:(isPanda?spd*0.82:isSprinter?spd*2.3:spd)*rand(0.85,1.15), dmg:(isPanda?dmgBase*1.7:dmgBase)*rand(0.85,1.15),
       atkT:0, hitFlash:0, target:null, wobble:rand(0,6.28),
       follow:0, steer:0,
     };
