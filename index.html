@@ -364,6 +364,7 @@ function buildMountainField(meshes){
 }
 const GRID = 6;               // building grid size (also wall width/height)
 const WALL_T = 0.4;           // wall thickness
+const ZCLIMB = 4.2;           // how fast a zombie scales a wall / ladder (units/sec)
 const EYE = 1.65;
 const PLAYER_R = 0.5;
 const PLAYER_H = 1.8;   // player body height (for height-aware wall collision)
@@ -1706,14 +1707,15 @@ const net = {
     if(this.isHost()){
       this.snapT-=dt;
       if(this.snapT<=0){ this.snapT=0.14;
-        const zs=[]; for(const b of bots){ if(b.alive && !b.flesh) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0, b.panda?1:0, b.sniper?1:0]); }
+        const zs=[]; for(const b of bots){ if(b.alive && !b.flesh) zs.push([b.nid, +b.x.toFixed(1), +b.z.toFixed(1), Math.round(b.hp), b.boss?1:0, b.panda?1:0, b.sniper?1:0, +(b.y||0).toFixed(1)]); }
         this.send({t:"zsnap", z:zs, phase, night:nightNum, clock:Math.round(clockT)});
       }
     } else {
       // client: smoothly interpolate host-driven zombies
       for(const b of bots){ if(b.remote && b.alive && b.tx!=null){
         b.x+=(b.tx-b.x)*Math.min(1,dt*10); b.z+=(b.tz-b.z)*Math.min(1,dt*10);
-        b.mesh.position.set(b.x,0,b.z); } }
+        if(b.ty!=null) b.y+=(b.ty-b.y)*Math.min(1,dt*10);
+        b.mesh.position.set(b.x,b.y||0,b.z); } }
     }
   },
 };
@@ -1826,12 +1828,12 @@ function playAvatarShoot(mesh){ playAvatarOnce(mesh,"shoot",380,1.3); } // brief
 // Client: reconcile zombies from a host snapshot.
 function applyZSnap(m){
   const seen=new Set();
-  for(const [nid,x,z,hp,boss,panda,sniper] of m.z){
+  for(const [nid,x,z,hp,boss,panda,sniper,y] of m.z){
     seen.add(nid);
     let b=bots.find(z2=>z2.nid===nid);
-    if(!b){ const mesh=makeBotMesh(boss?0x7a1f1f:0x5a8a3a, !!boss, !!panda, !!sniper); mesh.position.set(x,0,z); dynGroup.add(mesh);
-      b={mesh,nid,x,z,y:0,alive:true,hp,maxHp:hp,speed:0,dmg:0,atkT:0,hitFlash:0,wobble:0,lunge:0,boss:!!boss,panda:!!panda,sniper:!!sniper,remote:true}; bots.push(b); drawHB(b); }
-    b.tx=x; b.tz=z; b.hp=hp; if((boss||panda)&&b.maxHp<hp) b.maxHp=hp; drawHB(b);
+    if(!b){ const mesh=makeBotMesh(boss?0x7a1f1f:0x5a8a3a, !!boss, !!panda, !!sniper); mesh.position.set(x,y||0,z); dynGroup.add(mesh);
+      b={mesh,nid,x,z,y:y||0,alive:true,hp,maxHp:hp,speed:0,dmg:0,atkT:0,hitFlash:0,wobble:0,lunge:0,boss:!!boss,panda:!!panda,sniper:!!sniper,remote:true}; bots.push(b); drawHB(b); }
+    b.tx=x; b.tz=z; b.ty=(y||0); b.hp=hp; if((boss||panda)&&b.maxHp<hp) b.maxHp=hp; drawHB(b);
   }
   // remove zombies no longer in snapshot
   for(const b of bots){ if(b.remote && !seen.has(b.nid) && b.alive){ b.alive=false; dynGroup.remove(b.mesh); } }
@@ -2301,6 +2303,7 @@ function spawnPiece(p, quiet){
     s.ladder={x:p.x, z:p.z, base:p.y-GRID/2, top:p.y+GRID/2};
   }
   structures.push(s);
+  queueCollapse();   // an elevated piece with no path down to the ground collapses on the next tick
   return s;
 }
 // is there a METAL floor right under this spot? (bench must stand on iron floor)
@@ -2917,24 +2920,58 @@ function resolveHoriz(px,pz){
   }
   return [px,pz];
 }
-function groundHeightAt(x,z){
+// Highest standable surface at (x,z): terrain + any floor/wall top at or below refY+1.2.
+// Shared by the player (refY = eye/foot height) and climbing zombies.
+function surfaceYAt(x,z,refY){
   let g=mountainHeightAt(x,z);          // the central mountain is a climbable slope
-  const py=player.pos.y;
   for(const s of structures){
     // floors: standable top surface
     if(s.kind==="floor" && x>=s.fminx&&x<=s.fmaxx&&z>=s.fminz&&z<=s.fmaxz){
-      if(s.floorTop<=py+1.2) g=Math.max(g,s.floorTop);
+      if(s.floorTop<=refY+1.2) g=Math.max(g,s.floorTop);
     }
     // wall / window / door tops are standable too (you can walk on top of walls)
     if(s.col && s.col.top!==undefined && x>=s.col.minx&&x<=s.col.maxx&&z>=s.col.minz&&z<=s.col.maxz){
-      if(s.col.top<=py+1.2) g=Math.max(g,s.col.top);
+      if(s.col.top<=refY+1.2) g=Math.max(g,s.col.top);
     }
     if(s.cols) for(const c of s.cols){
-      if(c.top!==undefined && x>=c.minx&&x<=c.maxx&&z>=c.minz&&z<=c.maxz && c.top<=py+1.2) g=Math.max(g,c.top);
+      if(c.top!==undefined && x>=c.minx&&x<=c.maxx&&z>=c.minz&&z<=c.maxz && c.top<=refY+1.2) g=Math.max(g,c.top);
     }
   }
   return g;
 }
+function groundHeightAt(x,z){ return surfaceYAt(x,z,player.pos.y); }
+// top / bottom world-Y of a build piece (for zombie climbing + support checks)
+function structTop(s){ if(s.col&&s.col.top!==undefined) return s.col.top;
+  if(s.cols&&s.cols.length) return s.cols[0].top;
+  if(s.floorTop!==undefined) return s.floorTop;
+  if(s.ladder) return s.ladder.top; return (s.y||0)+GRID/2; }
+function structBase(s){ if(s.kind==="floor"&&s.floorTop!==undefined) return s.floorTop-WALL_T;
+  if(s.col&&s.col.base!==undefined) return s.col.base;
+  if(s.cols&&s.cols.length) return s.cols[0].base;
+  if(s.ladder) return s.ladder.base; return (s.y||0)-GRID/2; }
+// ---- Structural support: an elevated base must connect (through touching walls/ladders/floors)
+// down to the ground; a floating, unattached chunk collapses and its resources drop as loot. ----
+function refundStructure(s){
+  if(s.kind==="ladder"){ dropLoot(s.x,s.z,"mat"); return; }
+  dropLoot(s.x+rand(-1,1), s.z+rand(-1,1), "mat");                                     // 🪵 wood back
+  if(s.tier==="stone"||s.tier==="metal") dropLoot(s.x+rand(-1,1), s.z+rand(-1,1), "stone");
+  if(s.tier==="metal") dropLoot(s.x+rand(-1,1), s.z+rand(-1,1), "metal");
+}
+function collapseUnsupported(){
+  const P=structures.filter(s=>s.kind==="wall"||s.kind==="door"||s.kind==="window"||s.kind==="floor"||s.kind==="ladder");
+  if(!P.length) return;
+  const grounded=new Set();
+  for(const s of P){ if(structBase(s) <= mountainHeightAt(s.x,s.z)+1.2) grounded.add(s); }   // resting on the terrain
+  const G=GRID*1.2, VY=GRID*1.2, work=[...grounded];                                          // flood outward through touching pieces
+  while(work.length){ const t=work.pop(), tb=structBase(t);
+    for(const s of P){ if(grounded.has(s)) continue;
+      if(Math.abs(s.x-t.x)<=G && Math.abs(s.z-t.z)<=G && Math.abs(structBase(s)-tb)<=VY){ grounded.add(s); work.push(s); } } }
+  let fell=0;
+  for(const s of P){ if(!grounded.has(s)){ refundStructure(s); destroyStructure(s); fell++; } }
+  if(fell) toast("🏚️ Частина бази обвалилася — ресурси випали");
+}
+let _collapseTimer=null;   // debounced so a burst of build/destroy events settles before we judge support
+function queueCollapse(){ if(_collapseTimer) return; _collapseTimer=setTimeout(()=>{ _collapseTimer=null; try{ collapseUnsupported(); }catch(e){} }, 250); }
 // Nearest ladder the player is currently touching (for climbing), or null.
 function ladderAt(x,z,y){
   for(const s of structures){
@@ -3206,6 +3243,7 @@ function destroyStructure(s, fromNet){
   structures=structures.filter(x=>x!==s);
   if(s.kind==="turret") turrets=turrets.filter(x=>x!==s);
   if(!fromNet && s.key) net.send({t:"destroy", key:s.key});
+  queueCollapse();   // removing a support may leave a chunk of base floating -> re-check
 }
 
 // Turret AI: auto-target nearest bot in range with line of sight, then fire.
@@ -4267,9 +4305,13 @@ function update(dt){
     for(const c of worldColliders){ const cx=(c.minx+c.maxx)*0.5, cz=(c.minz+c.maxz)*0.5;
       if(Math.abs(cx-b.x)<9 && Math.abs(cz-b.z)<9) nearW.push(c); }
     for(const s of structures){ if(Math.abs((s.x||s.mesh.position.x)-b.x)<9 && Math.abs((s.z||s.mesh.position.z)-b.z)<9) nearS.push(s); }
+    // height-aware: a wall the zombie has already climbed ABOVE (or is entirely below) no longer blocks it
     const blockedAt=(nx,nz)=>{
+      const zTop=b.y+1.8;
       for(const s of nearS){ const cols=s.col?[s.col]:(s.cols||[]);
-        for(const c of cols){ if(nx>c.minx-br&&nx<c.maxx+br&&nz>c.minz-br&&nz<c.maxz+br) return s; } }
+        for(const c of cols){
+          if(c.top!==undefined){ if(b.y>=c.top-0.35) continue; if(zTop<=c.base+0.05) continue; }
+          if(nx>c.minx-br&&nx<c.maxx+br&&nz>c.minz-br&&nz<c.maxz+br) return s; } }
       for(const c of nearW){ if(nx>c.minx-br&&nx<c.maxx+br&&nz>c.minz-br&&nz<c.maxz+br) return true; }
       return null;
     };
@@ -4279,19 +4321,31 @@ function update(dt){
         if(!blockedAt(b.x+Math.cos(ang)*step, b.z+Math.sin(ang)*step)) return {ang,k}; } return null; };
     const dirHit = blockedAt(b.x+Math.cos(a)*step, b.z+Math.sin(a)*step);
     const frontStruct=(dirHit && dirHit!==true)?dirHit:null;
-    if(!dirHit){
+    const wantUp = (tgt.y - b.y) > 1.2;   // the player is up on a higher floor
+    let climbTo = -Infinity;              // set when we should rise this frame (wall/ladder)
+    // A ladder underfoot: zombies ride it up toward the player, exactly like the player does
+    const zLad = wantUp ? ladderAt(b.x,b.z,b.y) : null;
+    if(zLad){
+      climbTo = Math.min(tgt.y, zLad.top+0.5);
+      b.x += (zLad.x-b.x)*Math.min(1,dt*6); b.z += (zLad.z-b.z)*Math.min(1,dt*6);   // hug the rungs
+      b.steer=0; b.frust=Math.max(0,(b.frust||0)-dt);
+    } else if(!dirHit){
       moveTo(a);                                  // clear ahead — walk straight at the player
       b.steer=0;                                  // free again: forget which way we were rounding
       b.frust=0;                                  // reached open ground — no longer stuck on a wall
     } else {
-      // A wall is directly between us and the player. Count how long we've been unable to
-      // advance: if we just keep circling a walled base, break THROUGH instead of orbiting it.
+      // A wall is directly between us and the player. Count how long we've been unable to advance.
       if(frontStruct) b.frust=(b.frust||0)+dt; else b.frust=Math.max(0,(b.frust||0)-dt*0.5);
+      const atLevel = Math.abs(b.y - tgt.y) < 2.2;   // on the same floor as the player
       let mv=null;
-      if(frontStruct && b.frust>1.6 && b.atkT<=0){   // stuck circling too long -> smash the wall in the way
+      if(frontStruct && wantUp && !atLevel && structTop(frontStruct) > b.y+0.3){
+        // player is above us and a wall blocks the way -> CLIMB the wall face (hold ground, rise vertically)
+        climbTo = Math.min(tgt.y, structTop(frontStruct)+0.4); b.steer=0;
+      } else if(frontStruct && (b.frust>1.6 || atLevel) && b.atkT<=0){
+        // at the player's level (or just stuck circling a walled base) -> smash through and get inside
         b.atkT=0.8; frontStruct.hp-=b.dmg*1.6;
-        burst(b.x+Math.cos(a),1.4,b.z+Math.sin(a),0xc9a76a,3);
-        if(frontStruct.hp<=0){ destroyStructure(frontStruct); b.frust=0; }
+        burst(b.x+Math.cos(a),b.y+1.4,b.z+Math.sin(a),0xc9a76a,3);
+        if(frontStruct.hp<=0){ destroyStructure(frontStruct); queueCollapse(); b.frust=0; }
       } else {
         // blocked: slide ALONG the obstacle. Pick a side only on the free->blocked
         // transition, then COMMIT to it until we're clear again (no per-frame flip).
@@ -4306,11 +4360,15 @@ function update(dt){
         if(mv){ moveTo(mv.ang); }
         // fully boxed in by a structure -> smash the one straight ahead
         else if(frontStruct && b.atkT<=0){ b.atkT=0.8; frontStruct.hp-=b.dmg*1.6;
-          burst(b.x+Math.cos(a),1.4,b.z+Math.sin(a),0xc9a76a,3);
-          if(frontStruct.hp<=0) destroyStructure(frontStruct); }
+          burst(b.x+Math.cos(a),b.y+1.4,b.z+Math.sin(a),0xc9a76a,3);
+          if(frontStruct.hp<=0){ destroyStructure(frontStruct); queueCollapse(); } }
       }
     }
-    b.y=mountainHeightAt(b.x,b.z);        // zombies climb the mountain too
+    // ---- vertical: rise while climbing, otherwise settle onto the surface (gravity for descent) ----
+    { const gy=surfaceYAt(b.x,b.z,b.y);
+      if(climbTo > b.y+0.02){ b.y=Math.min(b.y + ZCLIMB*dt, climbTo); b.vy=0; }
+      else if(b.y > gy+0.06){ b.vy=(b.vy||0)-GRAV*dt; b.y+=b.vy*dt; if(b.y<gy){ b.y=gy; b.vy=0; } }
+      else { b.y=gy; b.vy=0; } }
     b.mesh.position.set(b.x,b.y,b.z);
     b.mesh.rotation.y=-a+Math.PI/2 + Math.sin(b.wobble)*0.12;
     // attack the nearest player when adjacent — or bash the car if the local host is driving
