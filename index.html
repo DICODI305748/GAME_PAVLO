@@ -181,7 +181,7 @@
       <b>I</b><span>Інвентар 🎒 — 26 комірок, ресурси по 100 у стосі</span>
       <b>🪣</b><span>Лопатою копай пісок 🏖️ на пляжі (наведись на пісок). Побудуй піч 🔥 (Буд.→0) і біля неї (E) плав: <b>2🏖️+1🪵→🔷 скло</b>, <b>2🟤 руда+1🪵→🔩 метал</b> (руду 🟤 бий кіркою з залізних каменів)</span>
       <b>Буд.</b><span>B — режим будівництва. Клавіші <b>1–0</b> обирають, <b>колесо миші</b> або <b>[ ]</b> гортають сторінки (стіни, двері, драбини, турелі, піч 🔥, низька стіна, паркан, колона, <b>генератор 🔌</b>, <b>лампочка 💡</b>…). Або клікни слот унизу.</span>
-      <b>🔌</b><span>Генератор: постав і тисни <b>E</b> з паливом ⛽ (1 паливо = 5 днів). Лампочки 💡 в радіусі ~40 світять, поки він працює.</span>
+      <b>🔌</b><span>Генератор: постав і тисни <b>E</b> з паливом ⛽ (1 паливо = 5 днів). Лампочки 💡 в радіусі ~40 світять, поки він працює. <b>Вітряк 🌀</b> — безкоштовна енергія, але вдвічі менший радіус (~20). <b>Електро-паркан ⚡</b> (50 🔩): під живленням вибиває зомбі за ~3 сек.</span>
       <b>U</b><span>Апгрейд: дерево→камінь (🪨), камінь→метал (🔩)</span>
       <b>🔨</b><span>Стіл крафта став на <b>металеву підлогу</b> — там крафтиш усю зброю (старт без зброї!)</span>
       <b>E</b><span>Скриня / стіл крафта / <b>відчинити-зачинити двері</b> · сокирою бий дерева, кіркою — каміння/руду</span>
@@ -1567,6 +1567,7 @@ let torches = [];      // placed torches (light + flicker)
 let spikeTraps = [];   // placed spike traps
 let benches = [];      // crafting tables
 let generators = [];   // fuel generators {mesh,x,z,y,fuelDays,on} — power light bulbs
+let windmills = [];    // wind turbines {mesh,blades,x,z,y} — free power, half the reach
 let bulbs = [];        // light bulbs {mesh,light,on} — glow when a running generator is in range
 let enemyHelis = [];   // shootable helicopters patrolling the sky
 
@@ -1853,7 +1854,7 @@ let ghost=null;
 
 function clearGroup(){
   while(dynGroup.children.length) dynGroup.remove(dynGroup.children[0]);
-  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[]; torches=[]; spikeTraps=[]; benches=[]; generators=[]; bulbs=[];
+  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[]; torches=[]; spikeTraps=[]; benches=[]; generators=[]; windmills=[]; bulbs=[];
   if(typeof fleshBoss!=="undefined"){ fleshBoss=null; if(fleshBalls) fleshBalls.length=0; }
   if(typeof net!=="undefined" && net.peers) net.peers.clear();   // avatars were in dynGroup
 }
@@ -2059,6 +2060,8 @@ function structGeom(kind){
   if(kind==="campfire") return new THREE.CylinderGeometry(1.1,1.1,1.0,10);
   if(kind==="generator") return new THREE.BoxGeometry(2.2,1.7,1.6);
   if(kind==="bulb") return new THREE.BoxGeometry(0.6,1.3,0.6);
+  if(kind==="windmill") return new THREE.CylinderGeometry(0.5,0.8,8,8);
+  if(kind==="efence") return new THREE.BoxGeometry(GRID, GRID, 0.5);
   return new THREE.BoxGeometry(GRID, GRID, WALL_T);   // wall/door/window ghost outline
 }
 // ---- Torch (light) & Spikes (trap) props ----
@@ -2197,6 +2200,8 @@ const BUILD_CAT=[
   {kind:"pillar",   name:"Колона",       ico:"🏛️", mode:"prop", cost:{w:8},  hp:260, col:{r:0.9,h:GRID}},
   {kind:"generator",name:"Генератор",    ico:"🔌", mode:"prop", cost:{w:35}, hp:300},
   {kind:"bulb",     name:"Лампочка",     ico:"💡", mode:"prop", cost:{w:8},  hp:40},
+  {kind:"windmill", name:"Вітряк",       ico:"🌀", mode:"prop", cost:{w:45}, hp:220},
+  {kind:"efence",   name:"Електро-паркан",ico:"⚡", mode:"wall", cost:{m:50}, hp:200},
 ];
 const BUILD_BY_KIND={}; for(const it of BUILD_CAT) BUILD_BY_KIND[it.kind]=it;
 // short cover walls (half_wall / fence) — box sits on the tile floor (bottom at -GRID/2)
@@ -2246,6 +2251,34 @@ function makeBuildProp(kind){
   }
   return g;
 }
+// Wind turbine — a free power source (half the reach of a fuel generator). Blades spin.
+function makeWindmill(){
+  const g=new THREE.Group();
+  const gray=new THREE.MeshStandardMaterial({color:0xb8bcc2,roughness:.6,metalness:.4,flatShading:true});
+  const tower=new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.7,7.5,10),gray); tower.position.y=3.75; tower.castShadow=true; g.add(tower);
+  const head=new THREE.Mesh(new THREE.BoxGeometry(0.85,0.85,1.5),gray); head.position.set(0,7.6,0.2); head.castShadow=true; g.add(head);
+  const blades=new THREE.Group(); blades.position.set(0,7.6,1.05);
+  const bmat=new THREE.MeshStandardMaterial({color:0xe8ebef,roughness:.5,metalness:.2,side:THREE.DoubleSide,flatShading:true});
+  for(let i=0;i<4;i++){ const bl=new THREE.Mesh(new THREE.BoxGeometry(0.4,3.6,0.1),bmat); bl.position.y=1.9;
+    const arm=new THREE.Group(); arm.rotation.z=i*Math.PI/2; arm.add(bl); blades.add(arm); }
+  const hub=new THREE.Mesh(new THREE.SphereGeometry(0.3,10,8),gray); blades.add(hub);
+  g.add(blades);
+  return {group:g, blades};
+}
+// Electric fence — GRAY metal posts + live wires. Zaps zombies when powered.
+function makeEFence(){
+  const g=new THREE.Group();
+  const gray=new THREE.MeshStandardMaterial({color:0x8a8f96,roughness:.6,metalness:.7,flatShading:true});
+  const wireMats=[];
+  for(const sx of [-GRID/2+0.25, 0, GRID/2-0.25]){ const post=new THREE.Mesh(new THREE.BoxGeometry(0.34,GRID,0.34),gray); post.position.set(sx,0,0); post.castShadow=true; g.add(post); }
+  for(let i=0;i<5;i++){ const y=-GRID/2+0.8+i*1.15;
+    const wmat=new THREE.MeshStandardMaterial({color:0x9aa0a6, emissive:new THREE.Color(0x2a6bff), emissiveIntensity:0, metalness:.6, roughness:.4});
+    const w=new THREE.Mesh(new THREE.BoxGeometry(GRID-0.5,0.1,0.1),wmat); w.position.set(0,y,0); g.add(w); wireMats.push(wmat);
+    for(const sx of [-GRID/2+0.25, GRID/2-0.25]){ const ins=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.24,6),new THREE.MeshStandardMaterial({color:0xdddddd})); ins.rotation.z=Math.PI/2; ins.position.set(sx,y,0.02); g.add(ins); }
+  }
+  g.userData.wireMats=wireMats;
+  return g;
+}
 // Fortnite-style grid: floors tile on cell centres, walls snap to the cell
 // EDGE the player is facing so they line up flush with the floor tiles.
 function placement(){
@@ -2282,6 +2315,7 @@ function placement(){
 }
 const TURRET_COST=30, TORCH_COST=5, SPIKE_COST=15;
 const FURNACE_COST={w:25, s:20};   // 🪵 wood + 🪨 stone to build a furnace 🔥
+const EFENCE_COST=50;              // 🔩 metal for one electric-fence panel
 function pieceCost(kind){ const d=BUILD_BY_KIND[kind]; if(d&&d.cost&&d.cost.w!=null) return d.cost.w;
   return kind==="turret"?TURRET_COST : kind==="torch"?TORCH_COST : kind==="spikes"?SPIKE_COST : 10; }
 const UPGRADE_COST=20;                                               // stone/metal to upgrade
@@ -2309,9 +2343,11 @@ function updateGhost(){
   if(p.kind==="barricade") ghost.position.y=p.y+0.8;
   if(p.kind==="generator") ghost.position.y=p.y+0.85;
   if(p.kind==="bulb") ghost.position.y=p.y-0.7;   // hangs just under the ceiling
+  if(p.kind==="windmill") ghost.position.y=p.y+4;
   let ok;
   if(p.kind==="bench") ok = metalFloorAt(p.x,p.z,p.y) && player.mats>=BENCH_COST.w && player.stone>=BENCH_COST.s && player.metal>=BENCH_COST.m;
   else if(p.kind==="furnace") ok = player.mats>=FURNACE_COST.w && player.stone>=FURNACE_COST.s;
+  else if(p.kind==="efence") ok = (player.metal||0)>=EFENCE_COST;
   else ok=player.mats>=pieceCost(p.kind);
   ghost.material.color.setHex(ok?0x66ffcc:0xff6666);
 }
@@ -2405,6 +2441,14 @@ function spawnPiece(p, quiet){
     if(!quiet){ playBlip(500,0.05); toast("💡 Лампочка на стелі — світить біля працюючого генератора (радіус ~40)"); }
     return s;
   }
+  if(p.kind==="windmill"){
+    const {group,blades}=makeWindmill(); group.position.set(p.x,p.y,p.z); group.rotation.y=p.rot||0; dynGroup.add(group); group.updateMatrixWorld();
+    const s={mesh:group, kind:"windmill", hp:220,maxHp:220, tier:"wood", key:pieceKey(p), x:p.x,z:p.z,y:p.y, rot:p.rot||0, blades,
+      col:{minx:p.x-0.9,maxx:p.x+0.9,minz:p.z-0.9,maxz:p.z+0.9,base:p.y,top:p.y+2.5}};
+    structures.push(s); windmills.push(s);
+    if(!quiet){ playBlip(240,0.07); toast("🌀 Вітряк — безкоштовна енергія (радіус удвічі менший за генератор)"); }
+    return s;
+  }
   // ---- generic decorative / utility props (pillar, lamp, campfire, flag, barrel, crate, sandbags, barricade) ----
   { const def=BUILD_BY_KIND[p.kind];
     if(def && def.mode==="prop"){
@@ -2418,6 +2462,7 @@ function spawnPiece(p, quiet){
   let mesh;
   if(p.kind==="ladder") mesh=makeLadderMesh();
   else if(p.kind==="half_wall"||p.kind==="fence") mesh=makeShortWall(p.kind);
+  else if(p.kind==="efence") mesh=makeEFence();
   else mesh=makePieceMesh(p.kind);          // textured wall / door / window / floor
   mesh.position.set(p.x,p.y,p.z); mesh.rotation.set(0,p.rot,0);
   dynGroup.add(mesh); mesh.updateMatrixWorld();
@@ -2429,8 +2474,9 @@ function spawnPiece(p, quiet){
   const wallCol=()=> alongX
     ? {minx:p.x-GRID/2,maxx:p.x+GRID/2,minz:p.z-HT,maxz:p.z+HT,base,top}
     : {minx:p.x-HT,maxx:p.x+HT,minz:p.z-GRID/2,maxz:p.z+GRID/2,base,top};
-  if(p.kind==="wall" || p.kind==="window"){
+  if(p.kind==="wall" || p.kind==="window" || p.kind==="efence"){
     s.col=wallCol();
+    if(p.kind==="efence"){ s.wireMats=mesh.userData.wireMats||[]; s.live=false; s.sparkT=0; }   // electric fence state
   } else if(p.kind==="half_wall" || p.kind==="fence"){
     const def=BUILD_BY_KIND[p.kind], H=GRID*(def.h||0.5), TH=(def.thin?WALL_T*0.6:WALL_T)/2, bs=p.y-GRID/2, tp=p.y-GRID/2+H;
     s.col = alongX ? {minx:p.x-GRID/2,maxx:p.x+GRID/2,minz:p.z-TH,maxz:p.z+TH,base:bs,top:tp}
@@ -2482,6 +2528,13 @@ function placeStructure(){
     if(player.mats<c.w||player.stone<c.s){ toast("Треба "+c.w+"🪵 "+c.s+"🪨"); return; }
     spawnPiece(p, false);
     player.mats-=c.w; player.stone-=c.s; playBlip(340,0.06); updateHUD();
+    net.send({t:"build", p:{kind:p.kind,x:p.x,y:p.y,z:p.z,rot:p.rot}});
+    return;
+  }
+  if(p.kind==="efence"){
+    if((player.metal||0)<EFENCE_COST){ toast("Треба "+EFENCE_COST+" 🔩 металу"); return; }
+    spawnPiece(p, false);
+    player.metal-=EFENCE_COST; playBlip(300,0.05); updateHUD();
     net.send({t:"build", p:{kind:p.kind,x:p.x,y:p.y,z:p.z,rot:p.rot}});
     return;
   }
@@ -3118,7 +3171,7 @@ function refundStructure(s){
   if(s.tier==="metal") dropLoot(s.x+rand(-1,1), s.z+rand(-1,1), "metal");
 }
 function collapseUnsupported(){
-  const P=structures.filter(s=>s.kind==="wall"||s.kind==="door"||s.kind==="window"||s.kind==="floor"||s.kind==="ladder"||s.kind==="half_wall"||s.kind==="fence"||s.kind==="pillar");
+  const P=structures.filter(s=>s.kind==="wall"||s.kind==="door"||s.kind==="window"||s.kind==="floor"||s.kind==="ladder"||s.kind==="half_wall"||s.kind==="fence"||s.kind==="pillar"||s.kind==="efence");
   if(!P.length) return;
   const grounded=new Set();
   for(const s of P){ if(structBase(s) <= mountainHeightAt(s.x,s.z)+1.2) grounded.add(s); }   // resting on the terrain
@@ -3403,14 +3456,23 @@ function destroyStructure(s, fromNet){
   structures=structures.filter(x=>x!==s);
   if(s.kind==="turret") turrets=turrets.filter(x=>x!==s);
   if(s.kind==="generator"){ generators=generators.filter(x=>x!==s); if(s.statusLight&&s.statusLight.parent) dynGroup.remove(s.statusLight); }
+  if(s.kind==="windmill") windmills=windmills.filter(x=>x!==s);
   if(s.kind==="bulb"){ bulbs=bulbs.filter(x=>x!==s); if(s.light&&s.light.parent) dynGroup.remove(s.light); if(s.wire&&s.wire.parent) dynGroup.remove(s.wire); }
   if(!fromNet && s.key) net.send({t:"destroy", key:s.key});
   queueCollapse();   // removing a support may leave a chunk of base floating -> re-check
 }
 
-// ---- Fuel generators + connected light bulbs ----
+// ---- Power grid: fuel generators + wind turbines feed light bulbs + electric fences ----
 const GEN_DAY_SEC=200;      // one "day" of generator runtime, in real seconds
-const BULB_RANGE=42;        // a bulb lights up if a running generator is within this radius
+const GEN_RANGE=42;         // a fuel generator powers devices within this radius
+const WIND_RANGE=21;        // a windmill gives "2x less electricity" -> half the reach
+// nearest LIVE power source covering (x,z): a running generator (range 42) or any windmill (range 21)
+function powerSourceFor(x,z){
+  let best=null,bd=Infinity;
+  for(const g of generators){ if(!g.on) continue; const d=Math.hypot(g.x-x,g.z-z); if(d<=GEN_RANGE && d<bd){ bd=d; best=g; } }
+  for(const w of windmills){ const d=Math.hypot(w.x-x,w.z-z); if(d<=WIND_RANGE && d<bd){ bd=d; best=w; } }
+  return best;
+}
 function nearGenerator(){ for(const g of generators){ if(Math.hypot(player.pos.x-g.x,player.pos.z-g.z)<3.4 && Math.abs((g.y||0)-player.pos.y)<3) return g; } return null; }
 function refuelGenerator(){ const g=nearGenerator(); if(!g) return;
   if(player.fuel<1){ toast("Немає палива ⛽ — знайди в скринях або скрафти"); return; }
@@ -3435,11 +3497,30 @@ function updateGenerators(dt){
     if(g.statusLight) g.statusLight.intensity = nowOn ? 0.5+Math.sin(performance.now()*0.012)*0.12 : 0;
   }
   for(const bl of bulbs){
-    let best=null,bd=BULB_RANGE;
-    for(const g of generators){ if(!g.on) continue; const d=Math.hypot(g.x-bl.x,g.z-bl.z); if(d<bd){ bd=d; best=g; } }
-    const powered=!!best;
+    const src=powerSourceFor(bl.x,bl.z);
+    const powered=!!src;
     if(powered!==bl.on){ bl.on=powered; setBulbGlow(bl,powered); }
-    updateBulbWire(bl,best);
+    updateBulbWire(bl,src);
+  }
+}
+// Wind turbines spin; electric fences light up when powered and zap zombies that touch them.
+function updateEFences(dt){
+  for(const w of windmills){ if(w.blades) w.blades.rotation.z += dt*1.7; }
+  for(const f of structures){ if(f.kind!=="efence") continue;
+    const live=!!powerSourceFor(f.x,f.z);
+    if(live!==f.live){ f.live=live; if(f.wireMats) for(const m of f.wireMats) m.emissiveIntensity=live?1.4:0; }
+    if(!live || !f.col) continue;
+    f.sparkT=(f.sparkT||0)-dt;
+    const c=f.col, M=1.3;
+    for(const b of bots){ if(!b.alive||b.remote||b.flesh) continue;
+      if(b.x>c.minx-M&&b.x<c.maxx+M&&b.z>c.minz-M&&b.z<c.maxz+M && b.y<c.top+1 && b.y>c.base-2){
+        const dps=b.boss?45:(b.maxHp/3);   // a normal zombie dies in ~3s; bosses take steady damage
+        b.hp-=dps*dt; b.hitFlash=3; drawHB(b);
+        if(f.sparkT<=0){ burst(b.x,b.y+1.2,b.z,0x66ccff,3); playBlip(900,0.02); }
+        if(b.hp<=0) killBot(b,false);
+      }
+    }
+    if(f.sparkT<=0) f.sparkT=0.15;
   }
 }
 
@@ -4630,6 +4711,7 @@ function update(dt){
   // ---- Turrets, enemy helis, rockets ----
   updateTurrets(dt);
   updateGenerators(dt);   // burn fuel + power connected bulbs
+  updateEFences(dt);      // spin windmills + zap zombies on live electric fences
   updateEnemyHelis(dt);
   updateRockets(dt);
   if(player.inBunker || fleshBoss || fleshBalls.length) updateFleshBoss(dt);   // bunker boss + flying flesh
