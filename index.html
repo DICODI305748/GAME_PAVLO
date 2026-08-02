@@ -592,7 +592,10 @@ function loadProp(url, targetH, onDone){
     const src=gltf.scene;
     src.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true;
       const mats=Array.isArray(o.material)?o.material:[o.material];
-      for(const mt of mats){ if(mt){ if("metalness" in mt) mt.metalness=Math.min(mt.metalness||0,0.1); mt.side=THREE.DoubleSide; mt.needsUpdate=true; } } } });
+      for(const mt of mats){ if(mt){ if("metalness" in mt) mt.metalness=Math.min(mt.metalness||0,0.1); mt.side=THREE.DoubleSide;
+        // leaf/vine cards imported as transparent often render as solid BLACK quads — cut them out instead
+        if(mt.map){ mt.map.encoding=THREE.sRGBEncoding; if(mt.transparent || mt.alphaTest>0){ mt.transparent=false; mt.alphaTest=Math.max(mt.alphaTest||0,0.5); mt.depthWrite=true; } }
+        mt.needsUpdate=true; } } } });
     const inner=new THREE.Group(); inner.add(src); inner.updateWorldMatrix(true,true);
     let box=new THREE.Box3().setFromObject(inner), size=new THREE.Vector3(); box.getSize(size);
     const s=targetH/(size.y||1); inner.scale.setScalar(s);
@@ -603,6 +606,13 @@ function loadProp(url, targetH, onDone){
   }, undefined, (e)=>{ console.warn(url+" failed", e); onDone&&onDone(null); }); }
   catch(e){ onDone&&onDone(null); }
 }
+// Force alpha-cutout on foliage (leaf/vine cards). Some GLBs export the leaf material as
+// alphaMode:OPAQUE with an alpha texture, so three ignores the alpha and the card shows as a
+// solid black quad. alphaTest cuts the transparent pixels away so only the vine/leaf remains.
+function cutoutFoliage(root){ if(!root) return; root.traverse(o=>{ if(!o.isMesh) return;
+  const mats=Array.isArray(o.material)?o.material:[o.material];
+  for(const mt of mats){ if(mt && mt.map){ mt.map.encoding=THREE.sRGBEncoding; mt.map.needsUpdate=true;
+    mt.transparent=false; mt.alphaTest=0.5; mt.side=THREE.DoubleSide; mt.depthWrite=true; mt.needsUpdate=true; } } }); }
 // clone a prop model at (x,z), scaled, wired up as a harvestable (collider + raycast target)
 function placeProp(MODEL,x,z,sc,harvest,hp,colHalf){
   const g=MODEL.clone(true); g.position.set(x,0,z); g.scale.setScalar(sc); g.rotation.y=wr(0,6.28);
@@ -832,8 +842,8 @@ function makeFurnaceMesh(){
   const go=()=>{ if(!done){ done=true; placeVegetation(); } };
   const ready=()=>{ if(--pending<=0) go(); };
   // jungle giant tree (uploaded lowpoly PSX model) — no shadow, for performance
-  loadProp("models/jungle_tree.glb", 22, m=>{ GIANT_TREE_MODEL=m; if(m) m.traverse(o=>{ if(o.isMesh) o.castShadow=false; }); ready(); });
-  loadProp("models/bamboo.glb", 9, m=>{ BAMBOO_MODEL=m; if(m) m.traverse(o=>{ if(o.isMesh) o.castShadow=false; }); ready(); });
+  loadProp("models/jungle_tree.glb", 22, m=>{ GIANT_TREE_MODEL=m; if(m){ m.traverse(o=>{ if(o.isMesh) o.castShadow=false; }); cutoutFoliage(m); } ready(); });
+  loadProp("models/bamboo.glb", 9, m=>{ BAMBOO_MODEL=m; if(m){ m.traverse(o=>{ if(o.isMesh) o.castShadow=false; }); cutoutFoliage(m); } ready(); });
   // bush — extract one geometry+material so the whole jungle floor is ONE instanced draw
   (function(){ if(typeof THREE.GLTFLoader==="undefined"){ ready(); return; }
     new THREE.GLTFLoader().load("models/bush.glb", g=>{
@@ -843,7 +853,9 @@ function makeFurnaceMesh(){
         const s=1/h; geo.scale(s,s,s); geo.computeBoundingBox();
         const c=new THREE.Vector3(); geo.boundingBox.getCenter(c);
         geo.translate(-c.x, -geo.boundingBox.min.y, -c.z);   // centre x/z, feet at y=0
-        BUSH_GEO=geo; BUSH_MAT=Array.isArray(mesh.material)?mesh.material[0]:mesh.material; }
+        BUSH_GEO=geo; BUSH_MAT=Array.isArray(mesh.material)?mesh.material[0]:mesh.material;
+        if(BUSH_MAT){ if(BUSH_MAT.map){ BUSH_MAT.map.encoding=THREE.sRGBEncoding; BUSH_MAT.map.needsUpdate=true; }
+          BUSH_MAT.transparent=false; BUSH_MAT.alphaTest=0.5; BUSH_MAT.side=THREE.DoubleSide; BUSH_MAT.depthWrite=true; BUSH_MAT.needsUpdate=true; } }
       ready();
     }, undefined, ()=>ready());
   })();
@@ -2826,8 +2838,8 @@ function startNight(){
 }
 function startDay(){
   phase="day"; clockT = nightNum===0?DAY_LEN:180;   // shorter days after the first
-  // dawn: surviving zombies burn away
-  for(const b of bots){ if(b.alive){ b.alive=false; burst(b.x,1,b.z,0x8a8a8a,6); dynGroup.remove(b.mesh); } }
+  // dawn: surviving zombies burn away — but NOT the sealed-arena flesh boss (it lives underground, no daylight)
+  for(const b of bots){ if(b.alive && !b.flesh){ b.alive=false; burst(b.x,1,b.z,0x8a8a8a,6); dynGroup.remove(b.mesh); } }
   toast("☀ Світанок! Готуйся до ночі "+(nightNum+1));
 }
 function updateCycle(dt){
@@ -4131,8 +4143,9 @@ function update(dt){
   let mx=0,mz=0;
   if(keys["KeyW"]||keys["ArrowUp"]) mz-=1; if(keys["KeyS"]||keys["ArrowDown"]) mz+=1;
   if(keys["KeyA"]||keys["ArrowLeft"]) mx-=1; if(keys["KeyD"]||keys["ArrowRight"]) mx+=1;
-  // On a ladder, W/S climb instead of walking (until you reach the top).
-  if(climbingBelowTop) mz=0;
+  // On a ladder, W/S climb instead of walking (until you reach the top). Lock BOTH axes so you
+  // go straight up and can't drift forward off the rungs (you dismount only at the very top).
+  if(climbingBelowTop){ mz=0; mx=0; }
   if(crafting||truckStoring||invOpen||furnaceOpen||mapOpen){ mx=0; mz=0; }   // frozen while a menu is open
   const yaw=player.yaw;
   // forward/right in world
@@ -4147,6 +4160,7 @@ function update(dt){
   let nz=player.pos.z+wz*speed*dt;
   [nx,nz]=resolveHoriz(nx,nz);
   if(!player.inBunker){ const rr=Math.hypot(nx,nz), lim=WORLD*1.05; if(rr>lim){ nx=nx/rr*lim; nz=nz/rr*lim; } }  // stay on the island (bypassed in the off-map bunker arena)
+  if(climbingBelowTop){ nx += (onLadder.x-nx)*Math.min(1,dt*10); nz += (onLadder.z-nz)*Math.min(1,dt*10); }  // stay pinned to the ladder while climbing (no forward slip-out)
   player.pos.x=nx; player.pos.z=nz;
 
   // ---- Ladder climbing (vertical) ----
@@ -4264,27 +4278,37 @@ function update(dt){
     const sweep=(sd)=>{ for(let k=1;k<=7;k++){ const ang=a+sd*k*0.42;
         if(!blockedAt(b.x+Math.cos(ang)*step, b.z+Math.sin(ang)*step)) return {ang,k}; } return null; };
     const dirHit = blockedAt(b.x+Math.cos(a)*step, b.z+Math.sin(a)*step);
+    const frontStruct=(dirHit && dirHit!==true)?dirHit:null;
     if(!dirHit){
       moveTo(a);                                  // clear ahead — walk straight at the player
       b.steer=0;                                  // free again: forget which way we were rounding
+      b.frust=0;                                  // reached open ground — no longer stuck on a wall
     } else {
-      // blocked: slide ALONG the obstacle. Pick a side only on the free->blocked
-      // transition, then COMMIT to it until we're clear again (no per-frame flip).
-      const frontStruct=(dirHit!==true)?dirHit:null;
+      // A wall is directly between us and the player. Count how long we've been unable to
+      // advance: if we just keep circling a walled base, break THROUGH instead of orbiting it.
+      if(frontStruct) b.frust=(b.frust||0)+dt; else b.frust=Math.max(0,(b.frust||0)-dt*0.5);
       let mv=null;
-      if(b.steer){                                 // already rounding — keep the same side
-        mv=sweep(b.steer) || sweep(-b.steer);
-      } else {                                      // just hit it — choose the side that turns least toward the player
-        const L=sweep(1), R=sweep(-1);
-        if(L&&R){ b.steer = (L.k<=R.k)?1:-1; mv = (L.k<=R.k)?L:R; }
-        else if(L){ b.steer=1; mv=L; }
-        else if(R){ b.steer=-1; mv=R; }
-      }
-      if(mv){ moveTo(mv.ang); }
-      // fully boxed in by a structure -> smash the one straight ahead
-      else if(frontStruct && b.atkT<=0){ b.atkT=0.8; frontStruct.hp-=b.dmg*1.6;
+      if(frontStruct && b.frust>1.6 && b.atkT<=0){   // stuck circling too long -> smash the wall in the way
+        b.atkT=0.8; frontStruct.hp-=b.dmg*1.6;
         burst(b.x+Math.cos(a),1.4,b.z+Math.sin(a),0xc9a76a,3);
-        if(frontStruct.hp<=0) destroyStructure(frontStruct); }
+        if(frontStruct.hp<=0){ destroyStructure(frontStruct); b.frust=0; }
+      } else {
+        // blocked: slide ALONG the obstacle. Pick a side only on the free->blocked
+        // transition, then COMMIT to it until we're clear again (no per-frame flip).
+        if(b.steer){                                 // already rounding — keep the same side
+          mv=sweep(b.steer) || sweep(-b.steer);
+        } else {                                      // just hit it — choose the side that turns least toward the player
+          const L=sweep(1), R=sweep(-1);
+          if(L&&R){ b.steer = (L.k<=R.k)?1:-1; mv = (L.k<=R.k)?L:R; }
+          else if(L){ b.steer=1; mv=L; }
+          else if(R){ b.steer=-1; mv=R; }
+        }
+        if(mv){ moveTo(mv.ang); }
+        // fully boxed in by a structure -> smash the one straight ahead
+        else if(frontStruct && b.atkT<=0){ b.atkT=0.8; frontStruct.hp-=b.dmg*1.6;
+          burst(b.x+Math.cos(a),1.4,b.z+Math.sin(a),0xc9a76a,3);
+          if(frontStruct.hp<=0) destroyStructure(frontStruct); }
+      }
     }
     b.y=mountainHeightAt(b.x,b.z);        // zombies climb the mountain too
     b.mesh.position.set(b.x,b.y,b.z);
