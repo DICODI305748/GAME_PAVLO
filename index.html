@@ -180,7 +180,8 @@
       <b>1–8</b><span>Бій: 1-4 зброя, 5 кірка ⛏️, 6 сокира 🪓, 7 лопата 🪣, 8 базука 🚀</span>
       <b>I</b><span>Інвентар 🎒 — 26 комірок, ресурси по 100 у стосі</span>
       <b>🪣</b><span>Лопатою копай пісок 🏖️ на пляжі (наведись на пісок). Побудуй піч 🔥 (Буд.→0) і біля неї (E) плав: <b>2🏖️+1🪵→🔷 скло</b>, <b>2🟤 руда+1🪵→🔩 метал</b> (руду 🟤 бий кіркою з залізних каменів)</span>
-      <b>Буд.</b><span>B — режим будівництва. Клавіші <b>1–0</b> обирають, <b>колесо миші</b> або <b>[ ]</b> гортають сторінки (стіни, двері, вікна, підлога, драбини, турелі, факели, шипи, стіл 🔨, піч 🔥, низька стіна, паркан, колона). Або клікни слот унизу.</span>
+      <b>Буд.</b><span>B — режим будівництва. Клавіші <b>1–0</b> обирають, <b>колесо миші</b> або <b>[ ]</b> гортають сторінки (стіни, двері, драбини, турелі, піч 🔥, низька стіна, паркан, колона, <b>генератор 🔌</b>, <b>лампочка 💡</b>…). Або клікни слот унизу.</span>
+      <b>🔌</b><span>Генератор: постав і тисни <b>E</b> з паливом ⛽ (1 паливо = 5 днів). Лампочки 💡 в радіусі ~40 світять, поки він працює.</span>
       <b>U</b><span>Апгрейд: дерево→камінь (🪨), камінь→метал (🔩)</span>
       <b>🔨</b><span>Стіл крафта став на <b>металеву підлогу</b> — там крафтиш усю зброю (старт без зброї!)</span>
       <b>E</b><span>Скриня / стіл крафта / <b>відчинити-зачинити двері</b> · сокирою бий дерева, кіркою — каміння/руду</span>
@@ -585,6 +586,7 @@ let TREE_MODEL=null, ROCK_MODEL=null, IRON_MODEL=null, FURNACE_MODEL=null, SANDP
 let GIANT_TREE_MODEL=null, MEAT_MODEL=null, BUNKER_MODEL=null, SNIPER_MODEL=null;   // uploaded jungle/bunker/flesh models
 let BAMBOO_MODEL=null, BUSH_GEO=null, BUSH_MAT=null;                                // uploaded bamboo (harvestable) + bush (instanced)
 let PANDA_MODEL=null, PANDA_CLIP=null;                                              // rigged+animated panda
+let GENERATOR_MODEL=null, BULB_MODEL=null;                                          // fuel generator + light bulb (buildable)
 let SHOVEL_ROT=[-1.15, 0.3, 0.15];   // held shovel orientation (blade forward, scoop up)
 let furnaces=[];   // bonfire smelters {mesh,x,z,y} — smelt sand 🏖️ into glass 🔷 (E)
 function loadProp(url, targetH, onDone){
@@ -868,6 +870,8 @@ function makeFurnaceMesh(){
   loadProp("models/sand_pile.glb", 1.2, m=>{ SANDPILE_MODEL=m; ready(); });
   loadProp("models/shovel.glb", 1.0, m=>{ SHOVEL_HELD=m; });   // held viewmodel for the 🪣 shovel (not gated on vegetation)
   loadProp("models/meat.glb", 0.7, m=>{ MEAT_MODEL=m; });      // flesh chunks thrown by the boss
+  loadProp("models/generator.glb", 1.7, m=>{ GENERATOR_MODEL=m; });   // buildable fuel generator
+  loadProp("models/light_bulb.glb", 0.55, m=>{ BULB_MODEL=m; });      // buildable light bulb (mounts on a pole)
   loadProp("models/zombie_sniper.glb", 2.2, m=>{ SNIPER_MODEL=m; if(m) m.traverse(o=>{ if(o.isMesh){ o.castShadow=false; } }); });
   setTimeout(go, 25000);  // safety net so vegetation always appears even if a model stalls (generous for slow connections)
 })();
@@ -1562,6 +1566,8 @@ let rockets = [];      // bazooka rockets in flight
 let torches = [];      // placed torches (light + flicker)
 let spikeTraps = [];   // placed spike traps
 let benches = [];      // crafting tables
+let generators = [];   // fuel generators {mesh,x,z,y,fuelDays,on} — power light bulbs
+let bulbs = [];        // light bulbs {mesh,light,on} — glow when a running generator is in range
 let enemyHelis = [];   // shootable helicopters patrolling the sky
 
 let player, storm, state="menu", running=false, lastTime=0;
@@ -1644,6 +1650,7 @@ const net = {
       case "name": { this.names[m.from]=m.name; const pr=this.peers.get(m.from); if(pr){ pr.name=m.name; setAvatarName(pr.mesh,m.name); } } break;
       case "pos": this.updatePeer(m); break;
       case "build": spawnPiece(m.p, true); break;
+      case "genfuel": { const g=generators.find(x=>x.key===m.key); if(g){ g.fuelDays=m.days; g.on=m.days>0; } break; }
       case "upgrade": { const s=structures.find(x=>x.key===m.key); if(s && s.tier!=="metal") upgradeTier(s); break; }
       case "destroy": { const s=structures.find(x=>x.key===m.key); if(s) destroyStructure(s, true); break; }
       case "door": { const s=structures.find(x=>x.key===m.key); if(s&&s.door){ s.door.open=m.open; s.door.target=m.open?-1.4:0; s.cols=m.open?s.posts:s.posts.concat([s.gapCol]); } break; }
@@ -1846,7 +1853,7 @@ let ghost=null;
 
 function clearGroup(){
   while(dynGroup.children.length) dynGroup.remove(dynGroup.children[0]);
-  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[]; torches=[]; spikeTraps=[]; benches=[];
+  structures=[]; bots=[]; bullets=[]; chests=[]; loots=[]; particles=[]; turrets=[]; cars=[]; rockets=[]; enemyHelis=[]; torches=[]; spikeTraps=[]; benches=[]; generators=[]; bulbs=[];
   if(typeof fleshBoss!=="undefined"){ fleshBoss=null; if(fleshBalls) fleshBalls.length=0; }
   if(typeof net!=="undefined" && net.peers) net.peers.clear();   // avatars were in dynGroup
 }
@@ -2050,6 +2057,8 @@ function structGeom(kind){
   if(kind==="barricade") return new THREE.BoxGeometry(3.4,1.6,1.2);
   if(kind==="lamp"||kind==="flag") return new THREE.BoxGeometry(1.0,3.4,1.0);
   if(kind==="campfire") return new THREE.CylinderGeometry(1.1,1.1,1.0,10);
+  if(kind==="generator") return new THREE.BoxGeometry(2.2,1.7,1.6);
+  if(kind==="bulb") return new THREE.BoxGeometry(0.7,2.8,0.7);
   return new THREE.BoxGeometry(GRID, GRID, WALL_T);   // wall/door/window ghost outline
 }
 // ---- Torch (light) & Spikes (trap) props ----
@@ -2186,6 +2195,8 @@ const BUILD_CAT=[
   {kind:"half_wall",name:"Низька стіна", ico:"🧱", mode:"wall", h:0.38,           cost:{w:6},  hp:90},
   {kind:"fence",    name:"Паркан",       ico:"🚧", mode:"wall", h:0.17, thin:true, cost:{w:5},  hp:55},
   {kind:"pillar",   name:"Колона",       ico:"🏛️", mode:"prop", cost:{w:8},  hp:260, col:{r:0.9,h:GRID}},
+  {kind:"generator",name:"Генератор",    ico:"🔌", mode:"prop", cost:{w:35}, hp:300},
+  {kind:"bulb",     name:"Лампочка",     ico:"💡", mode:"prop", cost:{w:8},  hp:40},
 ];
 const BUILD_BY_KIND={}; for(const it of BUILD_CAT) BUILD_BY_KIND[it.kind]=it;
 // short cover walls (half_wall / fence) — box sits on the tile floor (bottom at -GRID/2)
@@ -2292,6 +2303,8 @@ function updateGhost(){
   if(p.kind==="crate") ghost.position.y=p.y+0.85;
   if(p.kind==="sandbags") ghost.position.y=p.y+0.75;
   if(p.kind==="barricade") ghost.position.y=p.y+0.8;
+  if(p.kind==="generator") ghost.position.y=p.y+0.85;
+  if(p.kind==="bulb") ghost.position.y=p.y+1.4;
   let ok;
   if(p.kind==="bench") ok = metalFloorAt(p.x,p.z,p.y) && player.mats>=BENCH_COST.w && player.stone>=BENCH_COST.s && player.metal>=BENCH_COST.m;
   else if(p.kind==="furnace") ok = player.mats>=FURNACE_COST.w && player.stone>=FURNACE_COST.s;
@@ -2359,6 +2372,33 @@ function spawnPiece(p, quiet){
     const glow=new THREE.PointLight(0xff8a2a,1.0,9,2); glow.position.set(p.x,1.1,p.z); dynGroup.add(glow);
     furnaces.push({mesh:m, x:p.x, z:p.z, y:p.y, glow});
     if(!quiet){ playBlip(340,0.06); toast("Піч 🔥 готова — тисни E, щоб плавити (потрібне 🪵 дерево)"); } return;
+  }
+  if(p.kind==="generator"){
+    const m = GENERATOR_MODEL ? GENERATOR_MODEL.clone(true) : (function(){ const g=new THREE.Group();
+      const b=new THREE.Mesh(new THREE.BoxGeometry(2.0,1.4,1.4),new THREE.MeshStandardMaterial({color:0x7a6a4a,roughness:.9,metalness:.3})); b.position.y=0.7; b.castShadow=true; g.add(b);
+      const ex=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.9,8),MAT_METAL.clone()); ex.position.set(-0.8,1.6,0); g.add(ex); return g; })();
+    m.position.set(p.x,p.y,p.z); m.rotation.y=p.rot||0; dynGroup.add(m); m.updateMatrixWorld();
+    const gl=new THREE.PointLight(0x8effc0,0,7,2); gl.position.set(p.x,1.7,p.z); dynGroup.add(gl);   // green "running" glow
+    const s={mesh:m, kind:"generator", hp:300, maxHp:300, tier:"wood", key:pieceKey(p), x:p.x,z:p.z,y:p.y, rot:p.rot||0,
+      fuelDays:0, on:false, statusLight:gl, col:{minx:p.x-1.2,maxx:p.x+1.2,minz:p.z-1.2,maxz:p.z+1.2,base:p.y,top:p.y+1.8}};
+    structures.push(s); generators.push(s);
+    if(!quiet){ playBlip(200,0.08); toast("🔌 Генератор — тисни E з паливом ⛽ (1 паливо = 5 днів)"); }
+    return s;
+  }
+  if(p.kind==="bulb"){
+    const g=new THREE.Group();
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.12,2.4,6),MAT_METAL.clone()); pole.position.y=1.2; pole.castShadow=true; g.add(pole);
+    const glowMats=[];
+    if(BULB_MODEL){ const b=BULB_MODEL.clone(true); b.position.y=2.45; g.add(b);
+      b.traverse(o=>{ if(o.isMesh){ const ms=Array.isArray(o.material)?o.material:[o.material]; for(const mt of ms){ if(mt){ const c=mt.clone(); c.emissive=new THREE.Color(0xffe9a8); c.emissiveIntensity=0; o.material=c; glowMats.push(c); } } } }); }
+    else { const b=new THREE.Mesh(new THREE.SphereGeometry(0.32,12,10),new THREE.MeshStandardMaterial({color:0xfff3ce,emissive:0xffe9a8,emissiveIntensity:0})); b.position.y=2.6; g.add(b); glowMats.push(b.material); }
+    g.position.set(p.x,p.y,p.z); g.rotation.y=p.rot||0; dynGroup.add(g); g.updateMatrixWorld();
+    const light=new THREE.PointLight(0xffe9a8,0,22,2); light.position.set(p.x,(p.y||0)+2.5,p.z); dynGroup.add(light);
+    const s={mesh:g, kind:"bulb", hp:40, maxHp:40, tier:"wood", key:pieceKey(p), x:p.x,z:p.z,y:p.y, rot:p.rot||0,
+      light, glowMats, on:false, wire:null, wireGen:null, col:{minx:p.x-0.5,maxx:p.x+0.5,minz:p.z-0.5,maxz:p.z+0.5,base:p.y,top:p.y+2.7}};
+    structures.push(s); bulbs.push(s);
+    if(!quiet){ playBlip(500,0.05); toast("💡 Лампочка — світить біля працюючого генератора (радіус ~40)"); }
+    return s;
   }
   // ---- generic decorative / utility props (pillar, lamp, campfire, flag, barrel, crate, sandbags, barricade) ----
   { const def=BUILD_BY_KIND[p.kind];
@@ -3349,8 +3389,45 @@ function destroyStructure(s, fromNet){
   dynGroup.remove(s.mesh);
   structures=structures.filter(x=>x!==s);
   if(s.kind==="turret") turrets=turrets.filter(x=>x!==s);
+  if(s.kind==="generator"){ generators=generators.filter(x=>x!==s); if(s.statusLight&&s.statusLight.parent) dynGroup.remove(s.statusLight); }
+  if(s.kind==="bulb"){ bulbs=bulbs.filter(x=>x!==s); if(s.light&&s.light.parent) dynGroup.remove(s.light); if(s.wire&&s.wire.parent) dynGroup.remove(s.wire); }
   if(!fromNet && s.key) net.send({t:"destroy", key:s.key});
   queueCollapse();   // removing a support may leave a chunk of base floating -> re-check
+}
+
+// ---- Fuel generators + connected light bulbs ----
+const GEN_DAY_SEC=200;      // one "day" of generator runtime, in real seconds
+const BULB_RANGE=42;        // a bulb lights up if a running generator is within this radius
+function nearGenerator(){ for(const g of generators){ if(Math.hypot(player.pos.x-g.x,player.pos.z-g.z)<3.4 && Math.abs((g.y||0)-player.pos.y)<3) return g; } return null; }
+function refuelGenerator(){ const g=nearGenerator(); if(!g) return;
+  if(player.fuel<1){ toast("Немає палива ⛽ — знайди в скринях або скрафти"); return; }
+  player.fuel-=1; g.fuelDays=Math.min(30, g.fuelDays+5); g.on=true;
+  playBlip(220,0.1); updateHUD();
+  toast("⛽ Генератор заправлено! Вистачить ще на "+Math.round(g.fuelDays)+" дн.");
+  if(net.online && g.key) net.send({t:"genfuel", key:g.key, days:+g.fuelDays.toFixed(2)});
+}
+function setBulbGlow(bl,on){ bl.light.intensity=on?1.8:0; if(bl.glowMats) for(const m of bl.glowMats){ m.emissiveIntensity=on?1.1:0; } }
+function updateBulbWire(bl, gen){
+  if(bl.wireGen===gen) return;
+  if(bl.wire && bl.wire.parent) dynGroup.remove(bl.wire);
+  bl.wire=null; bl.wireGen=gen;
+  if(gen){ const geo=new THREE.BufferGeometry().setFromPoints([ new THREE.Vector3(bl.x,(bl.y||0)+2.3,bl.z), new THREE.Vector3(gen.x,(gen.y||0)+1.3,gen.z) ]);
+    bl.wire=new THREE.Line(geo, new THREE.LineBasicMaterial({color:0x1c1c1c})); dynGroup.add(bl.wire); }
+}
+function updateGenerators(dt){
+  for(const g of generators){
+    if(g.fuelDays>0) g.fuelDays=Math.max(0, g.fuelDays - dt/GEN_DAY_SEC);
+    const nowOn=g.fuelDays>0;
+    if(nowOn!==g.on){ g.on=nowOn; if(!nowOn) toast("🔌 Генератор заглух — потрібне паливо ⛽"); }
+    if(g.statusLight) g.statusLight.intensity = nowOn ? 0.5+Math.sin(performance.now()*0.012)*0.12 : 0;
+  }
+  for(const bl of bulbs){
+    let best=null,bd=BULB_RANGE;
+    for(const g of generators){ if(!g.on) continue; const d=Math.hypot(g.x-bl.x,g.z-bl.z); if(d<bd){ bd=d; best=g; } }
+    const powered=!!best;
+    if(powered!==bl.on){ bl.on=powered; setBulbGlow(bl,powered); }
+    updateBulbWire(bl,best);
+  }
 }
 
 // Turret AI: auto-target nearest bot in range with line of sight, then fire.
@@ -3717,7 +3794,7 @@ addEventListener("keydown",e=>{
   if(truckStoring){ if(c==="Escape"||c==="KeyT") closeTruckStore(); return; }   // storage open: freeze game keys
   if(c==="KeyB"){ if(!player.vehicle){ buildMode=!buildMode; updateModeTag(); } }
   else if(c==="KeyR"){ startReload(); }
-  else if(c==="KeyE"){ if(nearTower()){ sendSignal(); } else { const dr=nearDoor(); if(nearBench()) openCraft(); else if(nearFurnace()) openFurnace(); else if(nearBunker()) toggleBunker(); else if(dr) toggleDoor(dr); else tryOpenChest(); } }
+  else if(c==="KeyE"){ if(nearTower()){ sendSignal(); } else { const dr=nearDoor(); if(nearBench()) openCraft(); else if(nearFurnace()) openFurnace(); else if(nearGenerator()) refuelGenerator(); else if(nearBunker()) toggleBunker(); else if(dr) toggleDoor(dr); else tryOpenChest(); } }
   else if(c==="KeyI"){ if(!player.vehicle){ invOpen?closeInv():openInv(); } }
   else if(c==="KeyF"){ toggleVehicle(); }
   else if(c==="KeyG"){ if(player.vehicle) refuelCar(); }
@@ -4539,6 +4616,7 @@ function update(dt){
 
   // ---- Turrets, enemy helis, rockets ----
   updateTurrets(dt);
+  updateGenerators(dt);   // burn fuel + power connected bulbs
   updateEnemyHelis(dt);
   updateRockets(dt);
   if(player.inBunker || fleshBoss || fleshBalls.length) updateFleshBoss(dt);   // bunker boss + flying flesh
