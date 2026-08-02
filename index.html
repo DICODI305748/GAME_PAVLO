@@ -2723,7 +2723,7 @@ function spawnWave(night){
     if(Math.hypot(x,z)<MTN_R+20){ const s=(MTN_R+20)/Math.max(1,Math.hypot(x,z)); x*=s; z*=s; } // off the mountain
     const isPanda = false;   // pandas only live in the jungle now (spawned by spawnAmbientZombies)
     const isSniper = Math.random()<0.08;   // occasional "sniper" zombie variant (uploaded model)
-    const isSprinter = !isSniper && Math.random()<0.14;   // fast "Bob" runner zombie
+    const isSprinter = !isSniper && Math.random()<0.40;   // fast "Bob" runner zombie (40% of the horde)
     const mesh=makeBotMesh(tints[i%tints.length], false, isPanda, isSniper, isSprinter);
     mesh.position.set(x,0,z); dynGroup.add(mesh);
     const hpP=isPanda?hpBase*2.6:(isSprinter?hpBase*0.7:hpBase);   // sprinters are fast but frail
